@@ -14,8 +14,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "vizual.helloWorld",
-        "title": "Hello World"
+        "command": "projectGraph.openGraph",
+        "title": "Vizual: Open Project Graph"
       }
     ]
   },
@@ -42,5 +42,8 @@
     "webpack-cli": "^6.0.1",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2"
+  },
+  "dependencies": {
+    "minimatch": "^9.0.3"
   }
 }

@@ -140,3 +140,5 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 vizual/INSTRUCTIONS.md
+
+vizual/IMPLEMENTATION_SUMMARY.md

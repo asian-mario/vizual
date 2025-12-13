@@ -52,6 +52,13 @@ export class GraphController {
 	}
 
 	/**
+	 * Collapse a node (remove its children)
+	 */
+	collapseNode(nodeId: string): void {
+		this.model.collapseNode(nodeId);
+	}
+
+	/**
 	 * Open/reveal a node in VS Code
 	 */
 	async openNode(nodeId: string, reveal: boolean = false): Promise<void> {

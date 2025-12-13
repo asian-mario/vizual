@@ -15,7 +15,7 @@ export const DEFAULT_FILTERS: FilterConfig = {
  * Default color rules
  */
 export const DEFAULT_COLOR_RULES: ColorRule[] = [
-	{ kind: NodeKind.Folder, color: '#FFD700' },
+	{ kind: NodeKind.Folder, color: '#285fb8' },
 	{ kind: NodeKind.File, color: '#87CEEB' },
 	{ kind: NodeKind.Class, color: '#98FB98' },
 	{ kind: NodeKind.Function, color: '#DDA0DD' },
@@ -150,6 +150,69 @@ export class GraphModel {
 		if (node) {
 			node.isExpanded = expanded;
 			this.notifyUpdate();
+		}
+	}
+
+	/**
+	 * Collapse a node by removing all its children recursively
+	 */
+	collapseNode(nodeId: string): void {
+		const node = this.state.nodes.get(nodeId);
+		if (!node) {
+			return;
+		}
+
+		// Mark as not expanded
+		node.isExpanded = false;
+
+		// Find all children
+		const childIds = this.getChildrenIds(nodeId);
+
+		// Remove all children recursively
+		for (const childId of childIds) {
+			this.removeNodeRecursive(childId);
+		}
+
+		this.notifyUpdate();
+	}
+
+	/**
+	 * Get all direct children IDs of a node
+	 */
+	private getChildrenIds(nodeId: string): string[] {
+		const children: string[] = [];
+		for (const edge of this.state.edges.values()) {
+			if (edge.from === nodeId) {
+				children.push(edge.to);
+			}
+		}
+		return children;
+	}
+
+	/**
+	 * Remove a node and all its descendants recursively
+	 */
+	private removeNodeRecursive(nodeId: string): void {
+		// Get children before removing
+		const children = this.getChildrenIds(nodeId);
+
+		// Remove edges to this node
+		const edgesToRemove: string[] = [];
+		for (const [edgeId, edge] of this.state.edges.entries()) {
+			if (edge.from === nodeId || edge.to === nodeId) {
+				edgesToRemove.push(edgeId);
+			}
+		}
+		for (const edgeId of edgesToRemove) {
+			this.state.edges.delete(edgeId);
+		}
+
+		// Remove the node
+		this.state.nodes.delete(nodeId);
+
+		// Recursively remove children
+		for (const childId of children) {
+			this.removeNodeRecursive(childId);
 		}
 	}
 

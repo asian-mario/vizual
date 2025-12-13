@@ -1,16 +1,26 @@
 (function () {
 	const vscode = acquireVsCodeApi();
+	const defaultPhysics = {
+		centerForce: 0.05,
+		linkForce: 0.03,
+		linkLength: 180
+	};
+
+	const savedState = vscode.getState?.();
 	let network = null;
-	let currentState = {
+	let currentNodes = [];
+	let currentState = savedState || {
 		filters: null,
 		colors: null,
 		root: '',
-		activeMode: false
+		activeMode: false,
+		physics: { ...defaultPhysics }
 	};
 
 	// Initialize UI
 	document.addEventListener('DOMContentLoaded', () => {
 		initializeEventListeners();
+		populatePhysicsControls();
 	});
 
 	/**
@@ -22,28 +32,24 @@
 			vscode.postMessage({ type: 'root/pick' });
 		});
 
+		// Settings panel toggle
+		const settingsPanel = document.getElementById('settings-panel');
+		document.getElementById('open-settings')?.addEventListener('click', () => {
+			if (settingsPanel) settingsPanel.setAttribute('data-open', 'true');
+		});
+		document.getElementById('close-settings')?.addEventListener('click', () => {
+			if (settingsPanel) settingsPanel.setAttribute('data-open', 'false');
+		});
+
 		// Active mode toggle
 		document.getElementById('active-mode')?.addEventListener('change', (e) => {
+			currentState.activeMode = e.target.checked;
+			persistState();
 			vscode.postMessage({ 
 				type: 'activeMode/set', 
 				value: e.target.checked 
 			});
-		});
-
-		// Filter panel toggle
-		document.getElementById('toggle-filters')?.addEventListener('click', () => {
-			const panel = document.getElementById('filters-panel');
-			if (panel) {
-				panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-			}
-		});
-
-		// Color panel toggle
-		document.getElementById('toggle-colors')?.addEventListener('click', () => {
-			const panel = document.getElementById('colors-panel');
-			if (panel) {
-				panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-			}
+			repaintNetwork();
 		});
 
 		// Apply filters
@@ -68,14 +74,34 @@
 			});
 		});
 
-		// Apply colors (stub for now - would iterate color rules)
+		// Apply colors
 		document.getElementById('apply-colors')?.addEventListener('click', () => {
-			// Collect color rules from UI and send
-			const colorRules = currentState.colors || [];
+			const updatedRules = collectColorRules();
+			currentState.colors = updatedRules;
+			persistState();
 			vscode.postMessage({
 				type: 'colors/set',
-				colors: colorRules
+				colors: updatedRules
 			});
+		});
+
+		// Physics sliders
+		bindPhysicsSlider('center-force', 'center-force-value', (val) => {
+			currentState.physics.centerForce = val;
+			persistState();
+			applyPhysics();
+		});
+
+		bindPhysicsSlider('link-force', 'link-force-value', (val) => {
+			currentState.physics.linkForce = val;
+			persistState();
+			applyPhysics();
+		});
+
+		bindPhysicsSlider('link-length', 'link-length-value', (val) => {
+			currentState.physics.linkLength = val;
+			persistState();
+			applyPhysics();
 		});
 	}
 
@@ -103,6 +129,15 @@
 		const container = document.getElementById('graph-container');
 		if (!container) return;
 
+		// Store nodes for click handler access
+		currentNodes = nodes;
+
+		// Find root node (first node or node with kind folder and no incoming edges)
+		const rootNode = nodes.find(n => {
+			const hasParent = edges.some(e => e.to === n.id);
+			return !hasParent;
+		});
+
 		// Transform nodes for vis-network
 		const visNodes = nodes.map(node => {
 			let color = getColorForNode(node);
@@ -124,13 +159,22 @@
 				color = '#00ff00';
 			}
 
-			return {
+			const visNode = {
 				id: node.id,
 				label: node.label,
 				color: color,
 				shape: getShapeForKind(node.kind),
 				font: { color: '#ffffff' }
 			};
+
+			// Pin root node to prevent drift
+			if (rootNode && node.id === rootNode.id) {
+				visNode.fixed = { x: true, y: true };
+				visNode.x = 0;
+				visNode.y = 0;
+			}
+
+			return visNode;
 		});
 
 		// Transform edges for vis-network
@@ -145,37 +189,7 @@
 			edges: new vis.DataSet(visEdges)
 		};
 
-		const options = {
-			layout: {
-				hierarchical: {
-					direction: 'UD',
-					sortMethod: 'directed',
-					nodeSpacing: 150,
-					levelSeparation: 100
-				}
-			},
-			physics: {
-				enabled: false
-			},
-			interaction: {
-				hover: true
-			},
-			nodes: {
-				borderWidth: 2,
-				borderWidthSelected: 3,
-				font: {
-					size: 14,
-					color: '#ffffff'
-				}
-			},
-			edges: {
-				color: {
-					color: '#848484',
-					highlight: '#ffffff'
-				},
-				width: 2
-			}
-		};
+		const options = buildOptions();
 
 		// Create or update network
 		if (!network) {
@@ -194,15 +208,27 @@
 							ctrlKey: true
 						});
 					} else {
-						vscode.postMessage({
-							type: 'node/expand',
-							nodeId: nodeId
-						});
+						// Find node to check if expanded (use currentNodes from closure)
+						const node = currentNodes.find(n => n.id === nodeId);
+						if (node && node.isExpanded) {
+							// Collapse
+							vscode.postMessage({
+								type: 'node/collapse',
+								nodeId: nodeId
+							});
+						} else {
+							// Expand
+							vscode.postMessage({
+								type: 'node/expand',
+								nodeId: nodeId
+							});
+						}
 					}
 				}
 			});
 		} else {
 			network.setData(data);
+			network.setOptions(options);
 		}
 	}
 
@@ -210,7 +236,12 @@
 	 * Update state UI
 	 */
 	function updateState(state) {
-		currentState = state;
+		currentState = {
+			...currentState,
+			...state,
+			physics: currentState.physics || { ...defaultPhysics }
+		};
+		persistState();
 
 		// Update root path display
 		const rootPathEl = document.getElementById('root-path');
@@ -241,6 +272,8 @@
 		if (state.colors) {
 			renderColorRules(state.colors);
 		}
+
+		populatePhysicsControls();
 	}
 
 	/**
@@ -271,6 +304,22 @@
 		});
 	}
 
+	function collectColorRules() {
+		const container = document.getElementById('color-rules');
+		if (!container || !currentState.colors) return currentState.colors || [];
+
+		const updated = [];
+		const rows = container.querySelectorAll('.color-rule-item');
+		rows.forEach((row, idx) => {
+			const colorInput = row.querySelector('input[type="color"]');
+			const rule = currentState.colors[idx];
+			if (rule && colorInput) {
+				updated.push({ ...rule, color: colorInput.value });
+			}
+		});
+		return updated;
+	}
+
 	/**
 	 * Get color for a node based on rules
 	 */
@@ -287,14 +336,108 @@
 	function getShapeForKind(kind) {
 		switch (kind) {
 			case 'folder': return 'box';
-			case 'file': return 'ellipse';
-			case 'class': return 'diamond';
-			case 'function': return 'dot';
-			case 'method': return 'dot';
+			case 'file': return 'dot';
+			case 'class': return 'star';
+			case 'function': return 'triangle';
+			case 'method': return 'triangleDown';
+			case 'variable': return 'dot';
+			case 'interface': return 'diamond';
+			case 'enum': return 'square';
+			case 'namespace': return 'hexagon';
+			case 'property': return 'dot';
+			case 'constant': return 'dot';
+			case 'constructor': return 'triangleDown';
 			default: return 'dot';
 		}
 	}
 
-	// Initialize immediately
-	initializeEventListeners();
+	function buildOptions() {
+		return {
+			layout: {
+				improvedLayout: false
+			},
+			physics: {
+				enabled: true,
+				solver: 'forceAtlas2Based',
+				stabilization: {
+					enabled: true,
+					iterations: 50,
+					updateInterval: 10
+				},
+				adaptiveTimestep: true,
+				minVelocity: 0.05,
+				forceAtlas2Based: {
+					centralGravity: 0.1 * (currentState.physics?.centerForce ?? defaultPhysics.centerForce),
+					springConstant: currentState.physics?.linkForce ?? defaultPhysics.linkForce,
+					springLength: currentState.physics?.linkLength ?? defaultPhysics.linkLength,
+					damping: 0.65,
+					avoidOverlap: 0.5
+				}
+			},
+			interaction: {
+				hover: true,
+				dragNodes: true,
+				zoomView: true
+			},
+			nodes: {
+				borderWidth: 2,
+				borderWidthSelected: 3,
+				font: {
+					size: 14,
+					color: '#ffffff'
+				}
+			},
+			edges: {
+				color: {
+					color: '#848484',
+					highlight: '#ffffff'
+				},
+				width: 2,
+				smooth: {
+					enabled: true,
+					type: 'continuous',
+					roundness: 0.5
+				}
+			}
+		};
+	}
+
+	function applyPhysics() {
+		if (!network) return;
+		network.setOptions({ physics: buildOptions().physics });
+	}
+
+	function repaintNetwork() {
+		if (!network) return;
+		network.redraw();
+	}
+
+	function bindPhysicsSlider(inputId, valueId, onChange) {
+		const input = document.getElementById(inputId);
+		const valueEl = document.getElementById(valueId);
+		if (!input || !valueEl) return;
+		input.addEventListener('input', (e) => {
+			const val = parseFloat(e.target.value);
+			valueEl.textContent = val.toString();
+			onChange(val);
+		});
+	}
+
+	function populatePhysicsControls() {
+		const physics = currentState.physics || defaultPhysics;
+		setSliderValue('center-force', 'center-force-value', physics.centerForce);
+		setSliderValue('link-force', 'link-force-value', physics.linkForce);
+		setSliderValue('link-length', 'link-length-value', physics.linkLength);
+	}
+
+	function setSliderValue(inputId, valueId, value) {
+		const input = document.getElementById(inputId);
+		const valueEl = document.getElementById(valueId);
+		if (input) input.value = String(value);
+		if (valueEl) valueEl.textContent = String(value);
+	}
+
+	function persistState() {
+		vscode.setState?.(currentState);
+	}
 })();

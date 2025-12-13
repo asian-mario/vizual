@@ -7,20 +7,44 @@ body {
 	overflow: hidden;
 }
 
-#controls {
-	padding: 10px;
+#toolbar {
+	height: 52px;
+	padding: 10px 16px;
 	background-color: var(--vscode-sideBar-background);
 	border-bottom: 1px solid var(--vscode-panel-border);
 	display: flex;
-	gap: 15px;
 	align-items: center;
-	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 16px;
 }
 
-.control-group {
+.toolbar-left {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.toolbar-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+}
+
+.toolbar-value {
+	font-family: monospace;
+	font-size: 12px;
+	color: var(--vscode-textLink-foreground);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 520px;
+}
+
+.toolbar-actions {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 10px;
 }
 
 button {
@@ -44,27 +68,73 @@ input[type="checkbox"] {
 .panel {
 	position: absolute;
 	top: 60px;
-	right: 10px;
-	width: 350px;
+	right: 16px;
+	width: 380px;
 	background-color: var(--vscode-sideBar-background);
 	border: 1px solid var(--vscode-panel-border);
-	padding: 15px;
+	padding: 0 0 12px 0;
 	z-index: 1000;
-	border-radius: 4px;
-	max-height: 80vh;
+	border-radius: 6px;
+	max-height: calc(100vh - 80px);
 	overflow-y: auto;
+	box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+	display: none;
 }
 
-.panel h3 {
-	margin-top: 0;
-	font-size: 16px;
+.panel[data-open="true"] {
+	display: block;
+}
+
+.panel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.panel-header h3 {
+	margin: 0;
+	font-size: 15px;
+}
+
+.panel-header button {
+	padding: 4px 8px;
+	font-size: 14px;
+}
+
+.panel-content {
+	padding: 12px 16px 4px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.panel-section {
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	background-color: var(--vscode-editor-background);
+}
+
+.section-title {
+	font-size: 13px;
+	font-weight: 600;
+	margin-bottom: 8px;
 }
 
 .panel label {
-	display: block;
-	margin-top: 10px;
-	margin-bottom: 5px;
-	font-size: 13px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 12px;
+	margin-bottom: 8px;
+}
+
+.inline-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 
 .panel textarea {
@@ -78,29 +148,31 @@ input[type="checkbox"] {
 	resize: vertical;
 }
 
-.panel input[type="number"] {
-	width: 100px;
+.panel input[type="number"],
+.panel input[type="range"] {
 	background-color: var(--vscode-input-background);
 	color: var(--vscode-input-foreground);
 	border: 1px solid var(--vscode-input-border);
-	padding: 4px 8px;
-	margin-left: 8px;
+	padding: 4px 6px;
+}
+
+.panel input[type="number"] {
+	width: 120px;
+}
+
+.panel .value {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
 }
 
 .panel button {
-	margin-top: 10px;
+	margin-top: 6px;
 }
 
 #graph-container {
 	width: 100%;
-	height: calc(100vh - 60px);
+	height: calc(100vh - 52px);
 	background-color: var(--vscode-editor-background);
-}
-
-#root-path {
-	font-family: monospace;
-	font-size: 12px;
-	color: var(--vscode-textLink-foreground);
 }
 
 .color-rule-item {
@@ -109,7 +181,8 @@ input[type="checkbox"] {
 	align-items: center;
 	margin-bottom: 8px;
 	padding: 8px;
-	background-color: var(--vscode-editor-background);
+	background-color: var(--vscode-sideBar-background);
+	border: 1px solid var(--vscode-panel-border);
 	border-radius: 3px;
 }
 

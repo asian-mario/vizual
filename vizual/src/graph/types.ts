@@ -95,6 +95,7 @@ export type ExtensionMessage =
  */
 export type WebviewMessage =
 	| { type: 'node/expand'; nodeId: string }
+	| { type: 'node/collapse'; nodeId: string }
 	| { type: 'node/open'; nodeId: string; ctrlKey: boolean }
 	| { type: 'filters/set'; filters: FilterConfig }
 	| { type: 'colors/set'; colors: ColorRule[] }

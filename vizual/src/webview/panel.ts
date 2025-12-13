@@ -97,6 +97,10 @@ export class GraphPanel {
 				await this.controller.expandNode(message.nodeId);
 				break;
 
+			case 'node/collapse':
+				this.controller.collapseNode(message.nodeId);
+				break;
+
 			case 'node/open':
 				await this.controller.openNode(message.nodeId, message.ctrlKey);
 				break;
@@ -189,39 +193,65 @@ export class GraphPanel {
 	<title>Project Graph</title>
 </head>
 <body>
-	<div id="controls">
-		<div class="control-group">
-			<label>Root: <span id="root-path"></span></label>
+	<header id="toolbar">
+		<div class="toolbar-left">
+			<div class="toolbar-label">Root</div>
+			<div id="root-path" class="toolbar-value"></div>
+		</div>
+		<div class="toolbar-actions">
 			<button id="change-root">Change Root</button>
+			<button id="open-settings">Settings</button>
 		</div>
-		<div class="control-group">
-			<label>
-				<input type="checkbox" id="active-mode">
-				Active Mode
-			</label>
-		</div>
-		<div class="control-group">
-			<button id="toggle-filters">Filters</button>
-			<button id="toggle-colors">Colors</button>
-		</div>
-	</div>
+	</header>
 
-	<div id="filters-panel" class="panel" style="display: none;">
-		<h3>Filters</h3>
-		<label>Include Patterns (one per line):</label>
-		<textarea id="include-patterns" rows="3"></textarea>
-		<label>Exclude Patterns (one per line):</label>
-		<textarea id="exclude-patterns" rows="5"></textarea>
-		<label>Max Depth: <input type="number" id="max-depth" min="1" max="100"></label>
-		<label>Max Nodes: <input type="number" id="max-nodes" min="100" max="10000"></label>
-		<button id="apply-filters">Apply</button>
-	</div>
+	<section id="settings-panel" class="panel" data-open="false">
+		<div class="panel-header">
+			<h3>Settings</h3>
+			<button id="close-settings" aria-label="Close settings">×</button>
+		</div>
+		<div class="panel-content">
+			<div class="panel-section">
+				<div class="section-title">General</div>
+				<label class="inline-row">
+					<input type="checkbox" id="active-mode">
+					<span>Active Mode</span>
+				</label>
+			</div>
 
-	<div id="colors-panel" class="panel" style="display: none;">
-		<h3>Color Rules</h3>
-		<div id="color-rules"></div>
-		<button id="apply-colors">Apply</button>
-	</div>
+			<div class="panel-section">
+				<div class="section-title">Physics</div>
+				<label>Center Force
+					<input type="range" id="center-force" min="0" max="0.5" step="0.01">
+					<span class="value" id="center-force-value"></span>
+				</label>
+				<label>Link Force
+					<input type="range" id="link-force" min="0.01" max="0.3" step="0.01">
+					<span class="value" id="link-force-value"></span>
+				</label>
+				<label>Link Length
+					<input type="range" id="link-length" min="50" max="400" step="10">
+					<span class="value" id="link-length-value"></span>
+				</label>
+			</div>
+
+			<div class="panel-section">
+				<div class="section-title">Filters</div>
+				<label>Include Patterns (one per line)</label>
+				<textarea id="include-patterns" rows="3"></textarea>
+				<label>Exclude Patterns (one per line)</label>
+				<textarea id="exclude-patterns" rows="4"></textarea>
+				<label class="inline-row">Max Depth <input type="number" id="max-depth" min="1" max="100"></label>
+				<label class="inline-row">Max Nodes <input type="number" id="max-nodes" min="100" max="10000"></label>
+				<button id="apply-filters">Apply Filters</button>
+			</div>
+
+			<div class="panel-section">
+				<div class="section-title">Colors</div>
+				<div id="color-rules"></div>
+				<button id="apply-colors">Apply Colors</button>
+			</div>
+		</div>
+	</section>
 
 	<div id="graph-container"></div>
 

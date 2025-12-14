@@ -1,6 +1,11 @@
 # Vizual - Project Graph Visualizer
 
+![Logo](../media/Vizual.png)
+
+![Demo](../media/demo.gif)
+Download: [vizual-0.1.0.vsix](../Releases/vizual-0.1.0.vsix) 
 An interactive VS Code extension that visualizes your project structure as a node graph, showing folders, files, and code symbols (classes, functions, methods, etc.).
+![Release](https://img.shields.io/badge/Release-v0.1.0-blue)
 
 ## Features
 
@@ -91,14 +96,28 @@ To work on this extension:
 
 ## Release Notes
 
-### 0.0.1
+### 0.1.0 (2025-12-14)
 
-Initial release:
-- Basic folder/file/symbol graph visualization
-- Interactive expansion
-- Filtering and color rules
-- Breakpoint and active file highlighting
-- Active mode
+First public release of Vizual, an interactive project graph visualizer for VS Code.
+
+**New Features**
+- Interactive graph: expand folders → files → symbols (classes, functions, methods, variables)
+- Smart navigation: click to expand; Ctrl+Click to open files or jump to symbols
+- Physics controls: adjustable center force, link force, and link length
+- Color rules: customize colors by node kind and file extension
+- Filtering: include/exclude glob patterns, max depth, node limits
+- Active Mode: dims non-active nodes; highlights active file (green) and breakpoints (red)
+- Root pinning: keeps the root node anchored to prevent graph drift
+
+**Performance**
+- Stabilization for faster layout
+- Tuned physics (damping 0.65, minVelocity 0.05) for smoother ease-out
+- Reduced central gravity intensity to avoid over-clustering
+
+**Improvements**
+- Toggle expand/collapse on node click
+- Distinct shapes for folders, files, classes, functions, methods, variables, interfaces, enums
+- Live breakpoint and active file tracking
 
 ## License
 

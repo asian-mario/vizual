@@ -235,6 +235,14 @@ export class GraphPanel {
 			</div>
 
 			<div class="panel-section">
+				<div class="section-title">Display</div>
+				<label>Line Thickness
+					<input type="range" id="line-thickness" min="0.5" max="5" step="0.5">
+					<span class="value" id="line-thickness-value"></span>
+				</label>
+			</div>
+
+			<div class="panel-section">
 				<div class="section-title">Filters</div>
 				<label>Include Patterns (one per line)</label>
 				<textarea id="include-patterns" rows="3"></textarea>

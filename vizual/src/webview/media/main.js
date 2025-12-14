@@ -3,7 +3,8 @@
 	const defaultPhysics = {
 		centerForce: 0.05,
 		linkForce: 0.03,
-		linkLength: 180
+		linkLength: 180,
+		lineThickness: 2
 	};
 
 	const savedState = vscode.getState?.();
@@ -102,6 +103,12 @@
 			currentState.physics.linkLength = val;
 			persistState();
 			applyPhysics();
+		});
+
+		bindPhysicsSlider('line-thickness', 'line-thickness-value', (val) => {
+			currentState.physics.lineThickness = val;
+			persistState();
+			applyEdgeOptions();
 		});
 	}
 
@@ -238,8 +245,11 @@
 				}
 			});
 
-			// Handle hover highlight
+			// Handle hover highlight - update colors only, no graph recreation
 			network.on('hoverNode', (params) => {
+				// Skip hover updates while dragging to prevent flicker
+				if (isDragging) return;
+				
 				const nodeId = params.node;
 				hoveredNodeId = nodeId;
 				// Compute direct children via edges
@@ -247,14 +257,28 @@
 				currentEdges
 					.filter(e => e.from === nodeId)
 					.forEach(e => hoveredChildren.add(e.to));
-				// Repaint to apply dimming
-				updateGraph(currentNodes, currentEdges);
+				// Update colors without recreating graph
+			updateNodeColors();
 			});
 
 			network.on('blurNode', () => {
+				// Skip blur updates while dragging to prevent flicker
+				if (isDragging) return;
+				
 				hoveredNodeId = null;
 				hoveredChildren.clear();
-				updateGraph(currentNodes, currentEdges);
+				updateNodeColors();
+			});
+
+			// Track drag state to stabilize hover highlight
+			network.on('dragStart', () => {
+				isDragging = true;
+			});
+
+			network.on('dragEnd', () => {
+				isDragging = false;
+				// Refresh hover state after drag
+				updateNodeColors();
 			});
 		} else {
 			network.setData(data);
@@ -351,6 +375,46 @@
 	}
 
 	/**
+	 * Update node colors in DataSet without recreating graph
+	 */
+	function updateNodeColors() {
+		if (!network) return;
+		const updates = currentNodes.map(node => {
+			let color = getColorForNode(node);
+			
+			// Apply hover highlight: when hovering, dim all except hovered node and its children
+			if (hoveredNodeId) {
+				const isHovered = node.id === hoveredNodeId;
+				const isChild = hoveredChildren.has(node.id);
+				if (!isHovered && !isChild) {
+					color = '#666666';
+				}
+			} else {
+				// Apply active mode dimming when not hovering
+				if (currentState.activeMode) {
+					if (!node.isActive && !node.hasBreakpoint) {
+						color = '#666666';
+					}
+				}
+			}
+			
+			// Breakpoint color always wins
+			if (node.hasBreakpoint) {
+				color = '#ff0000';
+			}
+			
+			// Active file color always wins
+			if (node.isActive) {
+				color = '#00ff00';
+			}
+			
+			return { id: node.id, color: color };
+		});
+		
+		network.body.data.nodes.update(updates);
+	}
+
+	/**
 	 * Get color for a node based on rules
 	 */
 	function getColorForNode(node) {
@@ -385,6 +449,7 @@
 	let hoveredNodeId = null;
 	const hoveredChildren = new Set();
 	let currentEdges = [];
+	let isDragging = false;
 
 	function buildOptions() {
 		return {
@@ -427,7 +492,7 @@
 					color: '#848484',
 					highlight: '#ffffff'
 				},
-				width: 2,
+				width: currentState.physics?.lineThickness ?? defaultPhysics.lineThickness,
 				smooth: {
 					enabled: true,
 					type: 'continuous',
@@ -440,6 +505,16 @@
 	function applyPhysics() {
 		if (!network) return;
 		network.setOptions({ physics: buildOptions().physics });
+	}
+
+	function applyEdgeOptions() {
+		if (!network) return;
+		const thickness = currentState.physics?.lineThickness ?? defaultPhysics.lineThickness;
+		network.setOptions({
+			edges: {
+				width: thickness
+			}
+		});
 	}
 
 	function repaintNetwork() {
@@ -463,6 +538,7 @@
 		setSliderValue('center-force', 'center-force-value', physics.centerForce);
 		setSliderValue('link-force', 'link-force-value', physics.linkForce);
 		setSliderValue('link-length', 'link-length-value', physics.linkLength);
+		setSliderValue('line-thickness', 'line-thickness-value', physics.lineThickness);
 	}
 
 	function setSliderValue(inputId, valueId, value) {

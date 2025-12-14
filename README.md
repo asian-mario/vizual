@@ -2,9 +2,14 @@
 
 **An interactive node-graph visualizer for VS Code projects**
 
-Vizual transforms your project structure into a dynamic, physics-based graph that makes exploring large codebases intuitive and visual. Navigate from folders to files to symbols (classes, functions, methods) with a single click.
+![Logo](./media/Vizual.png)
 
-![Vizual Demo](https://via.placeholder.com/800x450.png?text=Add+Screenshot+Here)
+![Demo](./media/demo.gif)
+Download: [vizual-0.1.0.vsix](./Releases/vizual-0.1.0.vsix) 
+
+An interactive VS Code extension that visualizes your project structure as a node graph, showing folders, files, and code symbols (classes, functions, methods, etc.).
+![Release](https://img.shields.io/badge/Release-v0.1.0-blue)
+
 
 ## Features
 

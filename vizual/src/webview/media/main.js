@@ -131,6 +131,8 @@
 
 		// Store nodes for click handler access
 		currentNodes = nodes;
+		// Store edges for hover highlight access
+		currentEdges = edges;
 
 		// Find root node (first node or node with kind folder and no incoming edges)
 		const rootNode = nodes.find(n => {
@@ -142,10 +144,19 @@
 		const visNodes = nodes.map(node => {
 			let color = getColorForNode(node);
 			
-			// Apply active mode dimming
-			if (currentState.activeMode) {
-				if (!node.isActive && !node.hasBreakpoint) {
+			// Apply hover highlight: when hovering, dim all except hovered node and its children
+			if (hoveredNodeId) {
+				const isHovered = node.id === hoveredNodeId;
+				const isChild = hoveredChildren.has(node.id);
+				if (!isHovered && !isChild) {
 					color = '#666666';
+				}
+			} else {
+				// Apply active mode dimming when not hovering
+				if (currentState.activeMode) {
+					if (!node.isActive && !node.hasBreakpoint) {
+						color = '#666666';
+					}
 				}
 			}
 
@@ -225,6 +236,25 @@
 						}
 					}
 				}
+			});
+
+			// Handle hover highlight
+			network.on('hoverNode', (params) => {
+				const nodeId = params.node;
+				hoveredNodeId = nodeId;
+				// Compute direct children via edges
+				hoveredChildren.clear();
+				currentEdges
+					.filter(e => e.from === nodeId)
+					.forEach(e => hoveredChildren.add(e.to));
+				// Repaint to apply dimming
+				updateGraph(currentNodes, currentEdges);
+			});
+
+			network.on('blurNode', () => {
+				hoveredNodeId = null;
+				hoveredChildren.clear();
+				updateGraph(currentNodes, currentEdges);
 			});
 		} else {
 			network.setData(data);
@@ -350,6 +380,11 @@
 			default: return 'dot';
 		}
 	}
+
+	// Hover highlight state
+	let hoveredNodeId = null;
+	const hoveredChildren = new Set();
+	let currentEdges = [];
 
 	function buildOptions() {
 		return {

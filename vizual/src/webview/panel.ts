@@ -69,7 +69,7 @@ export class GraphPanel {
 				enableScripts: true,
 				retainContextWhenHidden: true,
 				localResourceRoots: [
-					vscode.Uri.joinPath(extensionUri, 'src', 'webview', 'media')
+					vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'media')
 				]
 			}
 		);
@@ -174,10 +174,10 @@ export class GraphPanel {
 	 */
 	private getHtmlForWebview(webview: vscode.Webview): string {
 		const scriptUri = webview.asWebviewUri(
-			vscode.Uri.joinPath(this.extensionUri, 'src', 'webview', 'media', 'main.js')
+			vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'media', 'main.js')
 		);
 		const styleUri = webview.asWebviewUri(
-			vscode.Uri.joinPath(this.extensionUri, 'src', 'webview', 'media', 'style.css')
+			vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'media', 'style.css')
 		);
 
 		// Use a nonce to only allow specific scripts to be run

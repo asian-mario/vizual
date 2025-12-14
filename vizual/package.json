@@ -4,7 +4,7 @@
   "displayName": "vizual",
   "description": "A node-graph visualizer for symbols in vscode.",
   "version": "0.1.1",
-  "icon": "../media/Vizual.png",
+  "icon": "dist/media/Vizual.png",
   "engines": {
     "vscode": "^1.107.0"
   },

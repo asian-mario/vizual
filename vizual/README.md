@@ -7,7 +7,7 @@ Download: [vizual-0.1.1.vsix](../Releases/vizual-0.1.1.vsix)
 
 An interactive VS Code extension that visualizes your project structure as a node graph, showing folders, files, and code symbols (classes, functions, methods, etc.).
 
-![Release](https://img.shields.io/badge/Release-v0.1.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.1.1-blue)
 
 ## Features
 

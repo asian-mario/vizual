@@ -39,6 +39,10 @@ export interface GraphNode {
 	isLeaf: boolean;
 	hasBreakpoint?: boolean;
 	isActive?: boolean;
+	// Active debug flags
+	isDebugActive?: boolean; // file is in current call stack
+	isDebugSymbolActive?: boolean; // symbol contains current paused location
+	debugStackDepth?: number; // position in call stack (0 = top/most recent)
 	metadata?: Record<string, any>;
 }
 

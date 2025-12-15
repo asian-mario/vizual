@@ -15,6 +15,7 @@
 		colors: null,
 		root: '',
 		activeMode: false,
+		debugMode: false,
 		physics: { ...defaultPhysics }
 	};
 
@@ -50,6 +51,14 @@
 				type: 'activeMode/set', 
 				value: e.target.checked 
 			});
+			repaintNetwork();
+		});
+
+		// Debug highlight toggle (local only)
+		document.getElementById('debug-mode')?.addEventListener('change', (e) => {
+			currentState.debugMode = e.target.checked;
+			persistState();
+			updateNodeColors();
 			repaintNetwork();
 		});
 
@@ -149,32 +158,48 @@
 
 		// Transform nodes for vis-network
 		const visNodes = nodes.map(node => {
-			let color = getColorForNode(node);
-			
-			// Apply hover highlight: when hovering, dim all except hovered node and its children
-			if (hoveredNodeId) {
-				const isHovered = node.id === hoveredNodeId;
-				const isChild = hoveredChildren.has(node.id);
-				if (!isHovered && !isChild) {
-					color = '#666666';
-				}
-			} else {
-				// Apply active mode dimming when not hovering
-				if (currentState.activeMode) {
-					if (!node.isActive && !node.hasBreakpoint) {
-						color = '#666666';
+			let color;
+
+			if (currentState.debugMode) {
+				// In debug mode: gradient from yellow (top of stack) to green (deeper frames)
+				color = '#666666';
+				if (node.isDebugActive || node.isDebugSymbolActive) {
+					if (node.debugStackDepth !== undefined) {
+						// Gradient: depth 0 (top) = yellow, depth 1-2 = yellow-green blend, depth 3+ = green
+						color = getDebugStackColor(node.debugStackDepth);
+					} else {
+						// File in stack but no specific depth info
+						color = '#00ff00';
 					}
 				}
-			}
+			} else {
+				color = getColorForNode(node);
 
-			// Highlight breakpoints
-			if (node.hasBreakpoint) {
-				color = '#ff0000';
-			}
+				// Apply hover highlight: when hovering, dim all except hovered node and its children
+				if (hoveredNodeId) {
+					const isHovered = node.id === hoveredNodeId;
+					const isChild = hoveredChildren.has(node.id);
+					if (!isHovered && !isChild) {
+						color = '#666666';
+					}
+				} else {
+					// Apply active mode dimming when not hovering
+					if (currentState.activeMode) {
+						if (!node.isActive && !node.hasBreakpoint) {
+							color = '#666666';
+						}
+					}
+				}
 
-			// Highlight active
-			if (node.isActive) {
-				color = '#00ff00';
+				// Highlight breakpoints
+				if (node.hasBreakpoint) {
+					color = '#ff0000';
+				}
+
+				// Highlight active
+				if (node.isActive) {
+					color = '#00ff00';
+				}
 			}
 
 			const visNode = {
@@ -208,6 +233,14 @@
 		};
 
 		const options = buildOptions();
+
+		// Capture current zoom and position before update
+		let previousScale = 1;
+		let previousPosition = { x: 0, y: 0 };
+		if (network) {
+			previousScale = network.getScale();
+			previousPosition = network.getViewPosition();
+		}
 
 		// Create or update network
 		if (!network) {
@@ -283,19 +316,46 @@
 		} else {
 			network.setData(data);
 			network.setOptions(options);
+			// Restore zoom and position after update
+			network.moveTo({ position: previousPosition, scale: previousScale });
 		}
+	}
+
+	/**
+	 * Check if incoming state represents a structural change (nodes/edges modified)
+	 */
+	function isStructuralChange(newNodes) {
+		if (!currentNodes || currentNodes.length !== newNodes.length) {
+			return true;
+		}
+		// Check if node IDs match (structural change if not)
+		const oldIds = new Set(currentNodes.map(n => n.id));
+		const newIds = new Set(newNodes.map(n => n.id));
+		if (oldIds.size !== newIds.size) return true;
+		for (const id of oldIds) {
+			if (!newIds.has(id)) return true;
+		}
+		return false;
 	}
 
 	/**
 	 * Update state UI
 	 */
 	function updateState(state) {
+		const oldNodes = currentNodes;
 		currentState = {
 			...currentState,
 			...state,
 			physics: currentState.physics || { ...defaultPhysics }
 		};
 		persistState();
+
+		// If graph structure hasn't changed, just update colors to avoid jitter
+		if (state.nodes && !isStructuralChange(state.nodes) && oldNodes) {
+			currentNodes = state.nodes;
+			currentEdges = state.edges || currentEdges;
+			updateNodeColors();
+		}
 
 		// Update root path display
 		const rootPathEl = document.getElementById('root-path');
@@ -307,6 +367,17 @@
 		const activeModeEl = document.getElementById('active-mode');
 		if (activeModeEl) {
 			activeModeEl.checked = state.activeMode;
+		}
+
+		// Update debug mode checkbox (stored locally)
+		const debugModeEl = document.getElementById('debug-mode');
+		if (debugModeEl) {
+			debugModeEl.checked = currentState.debugMode;
+		}
+
+		// Always refresh colors when state updates to handle debug flag changes
+		if (oldNodes) {
+			updateNodeColors();
 		}
 
 		// Update filter fields
@@ -380,32 +451,48 @@
 	function updateNodeColors() {
 		if (!network) return;
 		const updates = currentNodes.map(node => {
-			let color = getColorForNode(node);
-			
-			// Apply hover highlight: when hovering, dim all except hovered node and its children
-			if (hoveredNodeId) {
-				const isHovered = node.id === hoveredNodeId;
-				const isChild = hoveredChildren.has(node.id);
-				if (!isHovered && !isChild) {
-					color = '#666666';
-				}
-			} else {
-				// Apply active mode dimming when not hovering
-				if (currentState.activeMode) {
-					if (!node.isActive && !node.hasBreakpoint) {
-						color = '#666666';
+			let color;
+
+			if (currentState.debugMode) {
+				// In debug mode: gradient from yellow (top of stack) to green (deeper frames)
+				color = '#666666';
+				if (node.isDebugActive || node.isDebugSymbolActive) {
+					if (node.debugStackDepth !== undefined) {
+						// Gradient: depth 0 (top) = yellow, depth 1-2 = yellow-green blend, depth 3+ = green
+						color = getDebugStackColor(node.debugStackDepth);
+					} else {
+						// File in stack but no specific depth info
+						color = '#00ff00';
 					}
 				}
-			}
-			
-			// Breakpoint color always wins
-			if (node.hasBreakpoint) {
-				color = '#ff0000';
-			}
-			
-			// Active file color always wins
-			if (node.isActive) {
-				color = '#00ff00';
+			} else {
+				color = getColorForNode(node);
+				
+				// Apply hover highlight: when hovering, dim all except hovered node and its children
+				if (hoveredNodeId) {
+					const isHovered = node.id === hoveredNodeId;
+					const isChild = hoveredChildren.has(node.id);
+					if (!isHovered && !isChild) {
+						color = '#666666';
+					}
+				} else {
+					// Apply active mode dimming when not hovering
+					if (currentState.activeMode) {
+						if (!node.isActive && !node.hasBreakpoint) {
+							color = '#666666';
+						}
+					}
+				}
+				
+				// Breakpoint color always wins
+				if (node.hasBreakpoint) {
+					color = '#ff0000';
+				}
+
+				// Active file color always wins
+				if (node.isActive) {
+					color = '#00ff00';
+				}
 			}
 			
 			return { id: node.id, color: color };
@@ -422,6 +509,20 @@
 
 		const rule = currentState.colors.find(r => r.kind === node.kind);
 		return rule ? rule.color : '#999999';
+	}
+
+	/**
+	 * Get debug stack color based on depth (yellow at top, green deeper)
+	 */
+	function getDebugStackColor(depth) {
+		// depth 0 (top) = yellow (#ffff00)
+		// depth 1 = yellow-green blend (#80ff00)
+		// depth 2 = more green (#40ff00)
+		// depth 3+ = pure green (#00ff00)
+		if (depth === 0) return '#ffff00';
+		if (depth === 1) return '#aaff00';
+		if (depth === 2) return '#55ff00';
+		return '#00ff00';
 	}
 
 	/**

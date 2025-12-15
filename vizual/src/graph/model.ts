@@ -246,6 +246,13 @@ export class GraphModel {
 	}
 
 	/**
+	 * Manually trigger an update notification to subscribers
+	 */
+	emitUpdate(): void {
+		this.notifyUpdate();
+	}
+
+	/**
 	 * Notify all listeners of update
 	 */
 	private notifyUpdate(): void {

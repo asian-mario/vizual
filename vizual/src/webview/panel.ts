@@ -216,6 +216,10 @@ export class GraphPanel {
 					<input type="checkbox" id="active-mode">
 					<span>Active Mode</span>
 				</label>
+				<label class="inline-row">
+					<input type="checkbox" id="debug-mode">
+					<span>Active Debug Highlight</span>
+				</label>
 			</div>
 
 			<div class="panel-section">

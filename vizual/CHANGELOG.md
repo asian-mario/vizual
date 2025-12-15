@@ -2,6 +2,20 @@
 
 All notable changes to the "vizual" extension will be documented in this file.
 
+## [0.1.3] - 2025-12-15
+
+### Overview
+Add a toggle to control active debug highlighting so paused call stack and symbol colors can be turned off when you want a cleaner view. Additionally added QOL aesthetic fixes.
+
+### New Features
+- Added **Active Debug Highlight** toggle in the webview settings (General) to enable/disable paused call stack and symbol highlighting. Additionally shows the latest order of the call stack.
+- Debug highlight colors now respect the toggle state when rendering the graph.
+- When hovered, nodes now highlight themselves and child nodes.
+- Add line thickness adjustment slider
+
+### Maintenance
+- Bumped extension version to 0.1.3 and refreshed release assets.
+
 ## [0.1.0] - 2025-12-14
 
 ### Overview

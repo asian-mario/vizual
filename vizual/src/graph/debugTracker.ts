@@ -237,7 +237,9 @@ export class DebugStateTracker {
 	private containsLine(range: vscode.Range, line: number): boolean {
 		const start = range.start.line;
 		const end = range.end.line;
-		return line >= start && line <= end;
+		// Stack frame lines are 1-based, VS Code ranges are 0-based
+		const zeroBasedLine = line - 1;
+		return zeroBasedLine >= start && zeroBasedLine <= end;
 	}
 
 	/**

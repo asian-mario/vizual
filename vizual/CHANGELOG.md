@@ -2,6 +2,23 @@
 
 All notable changes to the "vizual" extension will be documented in this file.
 
+## [0.1.5] - 2025-12-17
+
+### Improvements
+- **Hover Info Popup**: Fixed popup positioning to appear next to the hovered node on the canvas instead of the center of the screen
+
+## [0.1.4] - 2025-12-17
+
+### Overview
+Add hover information popup for nodes displaying code metrics and diagnostics.
+
+### New Features
+- **Hover Info Popup**: Hover over any node for ~500ms to see a popup with code information including variable count, method count, warnings, and errors
+- Popup is non-intrusive and disappears when you move away or interact with nodes
+
+### Maintenance
+- Bumped extension version to 0.1.4
+
 ## [0.1.3] - 2025-12-15
 
 ### Overview

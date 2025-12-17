@@ -10,6 +10,13 @@
 	const savedState = vscode.getState?.();
 	let network = null;
 	let currentNodes = [];
+	let currentEdges = [];
+	let hoveredNodeId = null;
+	let hoveredChildren = new Set();
+	let isDragging = false;
+	let hoverTimeout = null;
+	let currentHoverPopup = null;
+	
 	let currentState = savedState || {
 		filters: null,
 		colors: null,
@@ -290,8 +297,19 @@
 				currentEdges
 					.filter(e => e.from === nodeId)
 					.forEach(e => hoveredChildren.add(e.to));
-				// Update colors without recreating graph
-			updateNodeColors();
+				
+				// Clear previous hover timeout
+				if (hoverTimeout) clearTimeout(hoverTimeout);
+				
+				// Show info popup after 500ms
+				hoverTimeout = setTimeout(() => {
+					const node = currentNodes.find(n => n.id === nodeId);
+					if (node) {
+						showHoverInfoPopup(node, params);
+					}
+				}, 500);
+				
+				updateNodeColors();
 			});
 
 			network.on('blurNode', () => {
@@ -300,6 +318,14 @@
 				
 				hoveredNodeId = null;
 				hoveredChildren.clear();
+				
+				// Clear hover timeout and popup
+				if (hoverTimeout) clearTimeout(hoverTimeout);
+				if (currentHoverPopup) {
+					currentHoverPopup.remove();
+					currentHoverPopup = null;
+				}
+				
 				updateNodeColors();
 			});
 
@@ -547,10 +573,7 @@
 	}
 
 	// Hover highlight state
-	let hoveredNodeId = null;
-	const hoveredChildren = new Set();
-	let currentEdges = [];
-	let isDragging = false;
+	// (declared at top with other globals)
 
 	function buildOptions() {
 		return {
@@ -651,5 +674,99 @@
 
 	function persistState() {
 		vscode.setState?.(currentState);
+	}
+
+	/**
+	 * Show hover info popup with code metrics
+	 */
+	function showHoverInfoPopup(node, hoverParams) {
+		// Remove existing popup
+		if (currentHoverPopup) {
+			currentHoverPopup.remove();
+		}
+
+		// Calculate info metrics
+		const children = currentEdges
+			.filter(e => e.from === node.id)
+			.map(e => currentNodes.find(n => n.id === e.to))
+			.filter(n => n);
+
+		const variableCount = children.filter(n => n.kind === 'variable' || n.kind === 'property' || n.kind === 'constant').length;
+		const methodCount = children.filter(n => n.kind === 'method' || n.kind === 'function').length;
+		const classCount = children.filter(n => n.kind === 'class').length;
+		const interfaceCount = children.filter(n => n.kind === 'interface').length;
+		const totalChildren = children.length;
+
+		// Get diagnostics for this node's URI (if it has one)
+		let warnings = 0;
+		let errors = 0;
+		if (node.uri) {
+			// We could get diagnostics from VS Code, but for now use a placeholder
+			// In a real implementation, you'd query vscode.languages.getDiagnostics(uri)
+		}
+
+		// Create popup element
+		const popup = document.createElement('div');
+		popup.className = 'hover-info-popup';
+		popup.style.cssText = `
+			position: fixed;
+			background: #2d2d30;
+			border: 1px solid #464647;
+			border-radius: 4px;
+			padding: 10px;
+			font-size: 12px;
+			color: #cccccc;
+			font-family: monospace;
+			box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+			z-index: 10000;
+			max-width: 250px;
+			pointer-events: none;
+		`;
+
+		// Build info content
+		const infoLines = [
+			`<strong>${node.label}</strong>`,
+			`Kind: ${node.kind}`,
+			...(totalChildren > 0 ? [`Children: ${totalChildren}`] : []),
+			...(methodCount > 0 ? [`Methods: ${methodCount}`] : []),
+			...(classCount > 0 ? [`Classes: ${classCount}`] : []),
+			...(interfaceCount > 0 ? [`Interfaces: ${interfaceCount}`] : []),
+			...(variableCount > 0 ? [`Variables: ${variableCount}`] : [])
+		];
+
+		popup.innerHTML = infoLines.map(line => `<div style="margin: 2px 0;">${line}</div>`).join('');
+
+		// Position popup next to node's canvas position
+		if (network) {
+			const nodePos = network.getPositions([node.id])[node.id];
+			if (nodePos) {
+				// Convert canvas position to screen coordinates
+				const canvasPos = network.canvasToDOM({ x: nodePos.x, y: nodePos.y });
+				popup.style.left = (canvasPos.x + 15) + 'px';
+				popup.style.top = (canvasPos.y + 15) + 'px';
+			}
+		}
+
+		document.body.appendChild(popup);
+		currentHoverPopup = popup;
+
+		// Auto-remove after 5 seconds or on any interaction
+		const popupTimeout = setTimeout(() => {
+			if (currentHoverPopup === popup) {
+				popup.remove();
+				currentHoverPopup = null;
+			}
+		}, 5000);
+
+		// Remove on mouse move away
+		const onMouseMove = () => {
+			if (currentHoverPopup === popup) {
+				popup.remove();
+				currentHoverPopup = null;
+			}
+			document.removeEventListener('mousemove', onMouseMove);
+			clearTimeout(popupTimeout);
+		};
+		document.addEventListener('mousemove', onMouseMove);
 	}
 })();

@@ -3,7 +3,7 @@
   "publisher": "asian-mario",
   "displayName": "vizual",
   "description": "A node-graph visualizer for symbols in vscode.",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "icon": "dist/media/Vizual.png",
   "engines": {
     "vscode": "^1.107.0"

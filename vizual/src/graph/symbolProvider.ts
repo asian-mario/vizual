@@ -33,33 +33,91 @@ export class SymbolProvider {
 		}
 
 		const fileUri = vscode.Uri.parse(node.uri!);
+		const lowerPath = fileUri.fsPath.toLowerCase();
+		if (lowerPath.endsWith('.md') || lowerPath.endsWith('.markdown')) {
+			node.isLeaf = true;
+			node.metadata = {
+				...(node.metadata || {}),
+				skipSymbolExpansion: true,
+				note: 'Markdown files are kept collapsed to avoid heading explosions.'
+			};
+			this.model.setNodeExpanded(nodeId, false);
+			return;
+		}
 
 		try {
-			// Execute document symbol provider
-			const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
-				'vscode.executeDocumentSymbolProvider',
-				fileUri
-			);
+			const symbols = await this.getDocumentSymbols(fileUri);
 
 			if (!symbols || symbols.length === 0) {
-				// File has no symbols, mark as leaf
-				node.isLeaf = true;
-				this.model.setNodeExpanded(nodeId, true);
+				// Avoid locking the node in expanded state when providers are still warming up.
+				this.model.setNodeExpanded(nodeId, false);
 				return;
 			}
 
-			// Process symbols recursively
-			this.processSymbols(fileUri, symbols, nodeId);
+			let expandedFully = true;
+			if (this.isDocumentSymbolArray(symbols)) {
+				// Process hierarchical symbols recursively.
+				expandedFully = this.processSymbols(fileUri, symbols, nodeId);
+			} else {
+				// Fallback for providers returning SymbolInformation[]
+				expandedFully = this.processSymbolInfos(fileUri, symbols, nodeId);
+			}
+
+			if (!expandedFully) {
+				this.model.setNodeExpanded(nodeId, false);
+				vscode.window.showWarningMessage(
+					`Node limit (${this.model.getFilters().maxNodes}) reached while expanding ${node.label}. Increase the limit in filters.`
+				);
+				return;
+			}
 
 			// Mark node as expanded
 			this.model.setNodeExpanded(nodeId, true);
 
-		} catch (error) {
-			console.error('Error expanding file symbols:', error);
-			// Mark as leaf if we can't get symbols
-			node.isLeaf = true;
-			this.model.setNodeExpanded(nodeId, true);
+		} catch {
+			// Keep the node retryable if provider fails transiently.
+			this.model.setNodeExpanded(nodeId, false);
 		}
+	}
+
+	private async getDocumentSymbols(fileUri: vscode.Uri): Promise<vscode.DocumentSymbol[] | vscode.SymbolInformation[] | undefined> {
+		// Warm up language services by ensuring the document is loaded first.
+		await vscode.workspace.openTextDocument(fileUri);
+
+		const retryDelaysMs = [0, 75, 150, 300];
+		for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+			if (attempt > 0) {
+				await this.wait(retryDelaysMs[attempt]);
+			}
+
+			const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[] | vscode.SymbolInformation[]>(
+				'vscode.executeDocumentSymbolProvider',
+				fileUri
+			);
+
+			if (symbols && symbols.length > 0) {
+				return symbols;
+			}
+		}
+
+		return undefined;
+	}
+
+	private async wait(ms: number): Promise<void> {
+		await new Promise<void>(resolve => {
+			globalThis.setTimeout(resolve, ms);
+		});
+	}
+
+	private isDocumentSymbolArray(
+		symbols: vscode.DocumentSymbol[] | vscode.SymbolInformation[]
+	): symbols is vscode.DocumentSymbol[] {
+		const first = symbols[0] as vscode.DocumentSymbol | vscode.SymbolInformation | undefined;
+		if (!first) {
+			return true;
+		}
+
+		return 'children' in first;
 	}
 
 	/**
@@ -70,11 +128,11 @@ export class SymbolProvider {
 		symbols: vscode.DocumentSymbol[],
 		parentId: string,
 		symbolPath: string = ''
-	): void {
+	): boolean {
 		for (const symbol of symbols) {
 			// Check node limit
 			if (this.model.isOverNodeLimit()) {
-				break;
+				return false;
 			}
 
 			const currentSymbolPath = symbolPath ? `${symbolPath}.${symbol.name}` : symbol.name;
@@ -95,9 +153,44 @@ export class SymbolProvider {
 
 			// Process children if any
 			if (symbol.children && symbol.children.length > 0) {
-				this.processSymbols(fileUri, symbol.children, symbolId, currentSymbolPath);
+				const childrenCompleted = this.processSymbols(fileUri, symbol.children, symbolId, currentSymbolPath);
+				if (!childrenCompleted) {
+					return false;
+				}
 			}
 		}
+
+		return true;
+	}
+
+	private processSymbolInfos(
+		fileUri: vscode.Uri,
+		symbols: vscode.SymbolInformation[],
+		parentId: string
+	): boolean {
+		for (const [index, symbol] of symbols.entries()) {
+			if (this.model.isOverNodeLimit()) {
+				return false;
+			}
+
+			const symbolPath = `${symbol.containerName || 'root'}.${symbol.name}.${index}`;
+			const symbolId = this.createSymbolId(fileUri, symbolPath, symbol.location.range);
+
+			const symbolNode: GraphNode = {
+				id: symbolId,
+				label: symbol.name,
+				kind: this.mapSymbolKind(symbol.kind),
+				uri: fileUri.toString(),
+				range: symbol.location.range,
+				isExpanded: false,
+				isLeaf: true
+			};
+
+			this.model.addNode(symbolNode);
+			this.model.addEdge(parentId, symbolId);
+		}
+
+		return !this.model.isOverNodeLimit();
 	}
 
 	/**

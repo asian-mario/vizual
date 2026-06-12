@@ -63,13 +63,13 @@ export class FileSystemScanner {
 			for (const [name, fileType] of entries) {
 				const childUri = vscode.Uri.joinPath(folderUri, name);
 				const relativePath = vscode.workspace.asRelativePath(childUri);
+				const isDirectory = fileType === vscode.FileType.Directory;
 
 				// Apply filters
-				if (!this.shouldInclude(relativePath, filters)) {
+				if (!this.shouldInclude(relativePath, isDirectory, filters)) {
 					continue;
 				}
 
-				const isDirectory = fileType === vscode.FileType.Directory;
 				const childNode: GraphNode = {
 					id: childUri.toString(),
 					label: name,
@@ -100,29 +100,37 @@ export class FileSystemScanner {
 	/**
 	 * Check if a path should be included based on filters
 	 */
-	private shouldInclude(relativePath: string, filters: FilterConfig): boolean {
+	private shouldInclude(relativePath: string, isDirectory: boolean, filters: FilterConfig): boolean {
+		const normalizedPath = relativePath.replace(/\\/g, '/');
+		const directoryPath = isDirectory ? `${normalizedPath}/` : normalizedPath;
+		const minimatchOptions = { dot: true, nocase: process.platform === 'win32' };
+
 		// Check exclude patterns
 		for (const pattern of filters.excludePatterns) {
-			if (minimatch(relativePath, pattern, { dot: true })) {
+			if (
+				minimatch(normalizedPath, pattern, minimatchOptions) ||
+				(isDirectory && minimatch(directoryPath, pattern, minimatchOptions))
+			) {
 				return false;
 			}
 		}
 
+		// Always keep traversing non-excluded directories so file globs work deeply.
+		if (isDirectory) {
+			return true;
+		}
+
+		if (!filters.includePatterns || filters.includePatterns.length === 0) {
+			return true;
+		}
+
 		// Check include patterns
 		for (const pattern of filters.includePatterns) {
-			if (minimatch(relativePath, pattern, { dot: true })) {
+			if (minimatch(normalizedPath, pattern, minimatchOptions)) {
 				return true;
 			}
 		}
 
 		return false;
-	}
-
-	/**
-	 * Get file extension
-	 */
-	private getFileExtension(fileName: string): string {
-		const ext = path.extname(fileName);
-		return ext ? ext.substring(1) : '';
 	}
 }

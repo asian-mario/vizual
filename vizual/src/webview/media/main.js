@@ -70,14 +70,18 @@
   let wasPhysicsPausedBeforeAnimation = false;
   let animationCancelRequested = false;
   let animationSnapshot = null;
+  let spawnHiddenNodeIds = new Set();
+  let animationVisibleDepth = 0;
 
   let currentState = savedState || {
     filters: null,
     colors: null,
     root: "",
     activeMode: false,
+    dependencyMode: false,
     debugMode: false,
     errorWarningHighlighting: false,
+    statsCollapsed: false,
     physicsPaused: false,
     animateDepth: 2,
     animateSpeed: 1,
@@ -86,6 +90,14 @@
 
   if (typeof currentState.errorWarningHighlighting !== "boolean") {
     currentState.errorWarningHighlighting = false;
+  }
+
+  if (typeof currentState.dependencyMode !== "boolean") {
+    currentState.dependencyMode = false;
+  }
+
+  if (typeof currentState.statsCollapsed !== "boolean") {
+    currentState.statsCollapsed = false;
   }
 
   // Initialize UI
@@ -130,6 +142,18 @@
       updateNodeColors();
       repaintNetwork();
     });
+
+    document
+      .getElementById("dependency-mode")
+      ?.addEventListener("change", (e) => {
+        const enabled = e.target.checked;
+        currentState.dependencyMode = enabled;
+        persistState();
+        vscode.postMessage({
+          type: "dependencyMode/set",
+          value: enabled,
+        });
+      });
 
     // Error/warning highlighting toggle (local only)
     document
@@ -270,6 +294,14 @@
       e.preventDefault();
       requestCancelAnimation();
     });
+
+    document.getElementById("stats-toggle")?.addEventListener("click", () => {
+      currentState.statsCollapsed = !currentState.statsCollapsed;
+      setStatsCollapsed(currentState.statsCollapsed);
+      persistState();
+    });
+
+    setStatsCollapsed(currentState.statsCollapsed);
   }
 
   /**
@@ -280,7 +312,7 @@
 
     switch (message.type) {
       case "graph/update":
-        updateGraph(message.nodes, message.edges);
+        updateGraph(message.nodes, message.edges, message.meta);
         break;
 
       case "state/update":
@@ -296,9 +328,13 @@
   /**
    * Update graph visualization
    */
-  function updateGraph(nodes, edges) {
+  function updateGraph(nodes, edges, meta = {}) {
     const container = document.getElementById("graph-container");
     if (!container) return;
+
+    if (!isAnimatingExpand && spawnHiddenNodeIds.size > 0) {
+      spawnHiddenNodeIds.clear();
+    }
 
     const previousNodeIds = new Set(currentNodes.map((n) => n.id));
     const previousNodePositions = network
@@ -309,16 +345,63 @@
     currentNodes = nodes;
     // Store edges for hover highlight access
     currentEdges = edges;
+    updateStatsPanel(meta?.stats);
+
+    const containmentEdges = getContainmentEdges();
+    const animationDepthMap = isAnimatingExpand ? getNodeDepthMap() : null;
 
     // Find root node (first node or node with kind folder and no incoming edges)
     const rootNode = nodes.find((n) => {
-      const hasParent = edges.some((e) => e.to === n.id);
+      const hasParent = containmentEdges.some((e) => e.to === n.id);
       return !hasParent;
     });
+
+    let animatedHiddenNodeIds = spawnHiddenNodeIds;
+    if (isAnimatingExpand) {
+      animatedHiddenNodeIds = new Set(spawnHiddenNodeIds);
+
+      let addedHiddenNode;
+      do {
+        addedHiddenNode = false;
+
+        for (const node of nodes) {
+          if (animatedHiddenNodeIds.has(node.id)) continue;
+
+          const shouldHideFromAnimatedParent = containmentEdges.some(
+            (e) =>
+              e.to === node.id &&
+              (pendingSpawnParents.has(e.from) ||
+                animatedHiddenNodeIds.has(e.from)),
+          );
+
+          if (shouldHideFromAnimatedParent) {
+            animatedHiddenNodeIds.add(node.id);
+            addedHiddenNode = true;
+          }
+        }
+      } while (addedHiddenNode);
+
+      if (animatedHiddenNodeIds.size !== spawnHiddenNodeIds.size) {
+        spawnHiddenNodeIds.clear();
+        for (const nodeId of animatedHiddenNodeIds) {
+          spawnHiddenNodeIds.add(nodeId);
+        }
+      }
+    }
 
     // Transform nodes for vis-network
     const visNodes = nodes.map((node) => {
       const color = getDisplayColorForNode(node);
+      const nodeDepth = animationDepthMap
+        ? animationDepthMap.get(node.id)
+        : undefined;
+      const isDepthHidden =
+        isAnimatingExpand &&
+        typeof nodeDepth === "number" &&
+        nodeDepth > animationVisibleDepth;
+      const shouldHideDuringAnimation =
+        isDepthHidden ||
+        (isAnimatingExpand && animatedHiddenNodeIds.has(node.id));
 
       const visNode = {
         id: node.id,
@@ -328,6 +411,12 @@
         font: { color: "#ffffff" },
       };
 
+      if (shouldHideDuringAnimation) {
+        visNode.hidden = true;
+        visNode.physics = false;
+        visNode.fixed = { x: true, y: true };
+      }
+
       // Preserve existing node positions to avoid visual jumps during updates.
       const previousPos = previousNodePositions[node.id];
       if (previousPos) {
@@ -335,7 +424,7 @@
         visNode.y = previousPos.y;
       } else if (isAnimatingExpand && !previousNodeIds.has(node.id)) {
         // New nodes spawned by animation start at their expanded parent position.
-        const parentEdge = edges.find(
+        const parentEdge = containmentEdges.find(
           (e) => e.to === node.id && pendingSpawnParents.has(e.from),
         );
         if (parentEdge) {
@@ -363,6 +452,8 @@
       from: edge.from,
       to: edge.to,
       arrows: "to",
+      color: getEdgeColor(edge.kind),
+      dashes: edge.kind === "dependsExternal",
     }));
 
     const data = {
@@ -499,7 +590,10 @@
 
       nodeDataSet.update(visNodes);
       edgeDataSet.update(visEdges);
-      network.setOptions(options);
+
+      if (!isAnimatingExpand) {
+        network.setOptions(options);
+      }
 
       // Preserve camera state for non-animated updates while avoiding full reset.
       if (!isAnimatingExpand) {
@@ -561,6 +655,12 @@
     if (debugModeEl) {
       debugModeEl.checked = currentState.debugMode;
     }
+
+    const dependencyModeEl = document.getElementById("dependency-mode");
+    if (dependencyModeEl) {
+      dependencyModeEl.checked = !!state.dependencyMode;
+    }
+    currentState.dependencyMode = !!state.dependencyMode;
 
     const errorWarningHighlightingEl = document.getElementById(
       "error-warning-highlighting",
@@ -664,6 +764,69 @@
     });
 
     network.body.data.nodes.update(updates);
+  }
+
+  function getContainmentEdges() {
+    return currentEdges.filter((edge) => edge.kind === "contains");
+  }
+
+  function getEdgeColor(kind) {
+    if (kind === "dependsLocal") {
+      return "#22c55e";
+    }
+
+    if (kind === "dependsExternal") {
+      return "#3b82f6";
+    }
+
+    return "#848484";
+  }
+
+  function setStatsCollapsed(collapsed) {
+    const panel = document.getElementById("stats-panel");
+    const toggle = document.getElementById("stats-toggle");
+    if (!panel || !toggle) return;
+
+    panel.setAttribute("data-collapsed", collapsed ? "true" : "false");
+    toggle.textContent = collapsed ? "+" : "−";
+    toggle.setAttribute(
+      "aria-label",
+      collapsed ? "Expand stats" : "Minimize stats",
+    );
+  }
+
+  function updateStatsPanel(stats) {
+    if (!stats) {
+      return;
+    }
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.textContent = String(value);
+      }
+    };
+
+    setText(
+      "stats-files",
+      Number.isFinite(stats.fileCount) ? stats.fileCount : 0,
+    );
+    setText(
+      "stats-loc",
+      Number.isFinite(stats.linesOfCode) ? stats.linesOfCode : 0,
+    );
+    setText(
+      "stats-deps",
+      Number.isFinite(stats.dependencyCount) ? stats.dependencyCount : 0,
+    );
+    setText(
+      "stats-errors",
+      Number.isFinite(stats.errorCount) ? stats.errorCount : 0,
+    );
+    setText(
+      "stats-warnings",
+      Number.isFinite(stats.warningCount) ? stats.warningCount : 0,
+    );
   }
 
   function getDisplayColorForNode(node) {
@@ -784,6 +947,8 @@
         return "box";
       case "file":
         return "dot";
+      case "dependency":
+        return "ellipse";
       case "class":
         return "star";
       case "function":
@@ -903,7 +1068,7 @@
 
   function getRootNodeId() {
     if (!currentNodes.length) return null;
-    const hasIncoming = new Set(currentEdges.map((e) => e.to));
+    const hasIncoming = new Set(getContainmentEdges().map((edge) => edge.to));
     const root = currentNodes.find((n) => !hasIncoming.has(n.id));
     return root ? root.id : currentNodes[0].id;
   }
@@ -934,7 +1099,7 @@
     while (queue.length) {
       const id = queue.shift();
       const baseDepth = depthMap.get(id) ?? 0;
-      currentEdges
+      getContainmentEdges()
         .filter((e) => e.from === id)
         .forEach((e) => {
           if (!depthMap.has(e.to)) {
@@ -1087,13 +1252,15 @@
     });
   }
 
-  function waitForExpansionApplied(nodeId, timeoutMs = 1500) {
+  function waitForExpansionSettled(nodeId, timeoutMs = 1500) {
     return new Promise((resolve) => {
       const startedAt = Date.now();
 
       const check = () => {
         const node = currentNodes.find((n) => n.id === nodeId);
-        const childCount = currentEdges.filter((e) => e.from === nodeId).length;
+        const childCount = getContainmentEdges().filter(
+          (e) => e.from === nodeId,
+        ).length;
 
         if ((node && node.isExpanded) || childCount > 0) {
           resolve();
@@ -1118,7 +1285,7 @@
     const speed = getAnimateSpeedValue();
     const timeScale = 1 / speed;
 
-    const childIds = currentEdges
+    const childIds = getContainmentEdges()
       .filter((e) => e.from === parentId)
       .map((e) => e.to);
 
@@ -1133,12 +1300,13 @@
 
     const nodeDataSet = network.body.data.nodes;
 
-    // Stage all direct children at the parent so each sibling can pop one-by-one.
     nodeDataSet.update(
       childIds.map((childId) => ({
         id: childId,
         x: parentPos.x,
         y: parentPos.y,
+        hidden: true,
+        physics: false,
         fixed: { x: true, y: true },
       })),
     );
@@ -1147,6 +1315,19 @@
 
     for (let i = 0; i < childIds.length; i++) {
       const childId = childIds[i];
+
+      spawnHiddenNodeIds.delete(childId);
+
+      nodeDataSet.update({
+        id: childId,
+        hidden: false,
+        physics: true,
+        x: parentPos.x,
+        y: parentPos.y,
+        fixed: { x: true, y: true },
+      });
+
+      await wait(Math.round(20 * timeScale));
 
       nodeDataSet.update({
         id: childId,
@@ -1222,6 +1403,8 @@
     animationCancelRequested = false;
     wasPhysicsPausedBeforeAnimation = currentState.physicsPaused;
     pendingSpawnParents.clear();
+    spawnHiddenNodeIds.clear();
+    animationVisibleDepth = 0;
     const expandedBeforeAnimation = getExpandedExpandableIds();
     const depthMapBeforeAnimation = getNodeDepthMap();
     const expandedOrderBeforeAnimation = Array.from(
@@ -1262,9 +1445,12 @@
       const visited = new Set(frontier);
 
       for (let level = 0; level < depth; level++) {
+        animationVisibleDepth = level + 1;
+
         const expandable = frontier.filter((id) => {
           const node = currentNodes.find((n) => n.id === id);
           if (!node) return false;
+          if (node.metadata?.skipSymbolExpansion) return false;
           if (node.kind === "file") {
             // Files start as leaf=true before symbol expansion; allow one expansion pass.
             return !node.isExpanded;
@@ -1289,7 +1475,7 @@
           vscode.postMessage({ type: "node/expand", nodeId });
 
           // Wait until this parent expansion data is reflected in graph state.
-          await waitForExpansionApplied(nodeId);
+          await waitForExpansionSettled(nodeId);
 
           // Pop this parent's children one-by-one with settle + 100ms between siblings.
           await animateSiblingChildren(nodeId, level, depth);
@@ -1299,7 +1485,7 @@
             break;
           }
 
-          currentEdges
+          getContainmentEdges()
             .filter((e) => e.from === nodeId)
             .forEach((e) => {
               if (e.to === nodeId) return;
@@ -1323,6 +1509,8 @@
     } finally {
       isAnimatingExpand = false;
       pendingSpawnParents.clear();
+      spawnHiddenNodeIds.clear();
+      animationVisibleDepth = 0;
       currentState.physicsPaused = wasPhysicsPausedBeforeAnimation;
       setAnimationPhysicsBoost(false);
 
@@ -1425,6 +1613,10 @@
     const errors = Number.isFinite(node.diagnosticsErrors)
       ? Math.max(0, node.diagnosticsErrors)
       : 0;
+    const nodeNote =
+      node.metadata && typeof node.metadata.note === "string"
+        ? node.metadata.note
+        : "";
 
     // Create popup element
     const popup = document.createElement("div");
@@ -1455,6 +1647,7 @@
       ...(variableCount > 0 ? [`Variables: ${variableCount}`] : []),
       ...(errors > 0 ? [`Errors: ${errors}`] : []),
       ...(warnings > 0 ? [`Warnings: ${warnings}`] : []),
+      ...(nodeNote ? [`Note: ${nodeNote}`] : []),
     ];
 
     popup.innerHTML = infoLines

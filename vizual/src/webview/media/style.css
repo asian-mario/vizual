@@ -238,6 +238,70 @@ input[type="checkbox"] {
 	z-index: 1200;
 }
 
+#stats-panel {
+	position: fixed;
+	left: 14px;
+	bottom: 48px;
+	width: 240px;
+	border-radius: 10px;
+	border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 76%, #ffffff 10%);
+	background: color-mix(in srgb, var(--vscode-editor-background) 88%, #000000 12%);
+	box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+	overflow: hidden;
+	z-index: 1190;
+}
+
+.stats-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 10px;
+	font-size: 12px;
+	font-weight: 700;
+	background: color-mix(in srgb, var(--vscode-sideBar-background) 88%, #ffffff 4%);
+	border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 82%, #ffffff 8%);
+}
+
+#stats-toggle {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 6px;
+	font-size: 14px;
+	line-height: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.stats-content {
+	padding: 8px 10px;
+	display: grid;
+	gap: 6px;
+}
+
+.stats-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-size: 12px;
+	color: var(--vscode-foreground);
+}
+
+.stats-row strong {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--vscode-textLink-foreground);
+}
+
+#stats-panel[data-collapsed="true"] .stats-content {
+	display: none;
+}
+
+#stats-panel[data-collapsed="true"] .stats-header {
+	border-bottom: none;
+}
+
 #animation-status[data-visible="true"] {
 	opacity: 1;
 	transform: translateY(0);

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { GraphController } from '../graph/controller';
-import { ExtensionMessage, GraphNode, WebviewMessage } from '../graph/types';
+import { EdgeKind, ExtensionMessage, GraphEdge, GraphNode, GraphStats, NodeKind, WebviewMessage } from '../graph/types';
 
 /**
  * Webview panel manager
@@ -24,6 +24,9 @@ export class GraphPanel {
 	private readonly extensionUri: vscode.Uri;
 	private readonly controller: GraphController;
 	private disposables: vscode.Disposable[] = [];
+	private readonly lineCountCache = new Map<string, number>();
+	private isSendingGraphUpdate = false;
+	private pendingGraphUpdate = false;
 
 	private constructor(
 		panel: vscode.WebviewPanel,
@@ -50,7 +53,7 @@ export class GraphPanel {
 		// Subscribe to model updates
 		this.disposables.push(
 			this.controller.onUpdate(() => {
-				this.sendGraphUpdate();
+				void this.sendGraphUpdate();
 			})
 		);
 
@@ -66,7 +69,19 @@ export class GraphPanel {
 				);
 
 				if (hasImpactedNode) {
-					this.sendGraphUpdate();
+					void this.sendGraphUpdate();
+				}
+			})
+		);
+
+		this.disposables.push(
+			vscode.workspace.onDidChangeTextDocument(event => {
+				const uriKey = event.document.uri.toString();
+				this.lineCountCache.delete(uriKey);
+
+				const hasImpactedNode = this.controller.getModel().getNodes().some(node => node.uri === uriKey);
+				if (hasImpactedNode) {
+					void this.sendGraphUpdate();
 				}
 			})
 		);
@@ -113,7 +128,7 @@ export class GraphPanel {
 	 */
 	private async initializeGraph(): Promise<void> {
 		await this.controller.initialize();
-		this.sendGraphUpdate();
+		await this.sendGraphUpdate();
 		this.sendStateUpdate();
 	}
 
@@ -148,11 +163,16 @@ export class GraphPanel {
 			}
 
 			case 'filters/set':
-				this.controller.setFilters(message.filters);
+				await this.controller.setFilters(message.filters);
 				break;
 
 			case 'colors/set':
 				this.controller.setColorRules(message.colors);
+				break;
+
+			case 'dependencyMode/set':
+				this.controller.setDependencyMode(message.value);
+				this.sendStateUpdate();
 				break;
 
 			case 'root/pick':
@@ -179,33 +199,50 @@ export class GraphPanel {
 		if (result && result[0]) {
 			await this.controller.setRootPath(result[0].fsPath);
 			this.sendStateUpdate();
+			await this.sendGraphUpdate();
 		}
 	}
 
 	/**
 	 * Send graph update to webview
 	 */
-	private sendGraphUpdate(): void {
-		const model = this.controller.getModel();
-		const diagnosticsCache = new Map<string, { errors: number; warnings: number; isCodeFile: boolean }>();
-		const diagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
-		const nodes = model.getNodes().map(node => {
-			const diagnosticInfo = this.collectDiagnosticInfo(node, diagnosticsCache, diagnosticsByUri);
-			return {
-				...node,
-				diagnosticsErrors: diagnosticInfo.errors,
-				diagnosticsWarnings: diagnosticInfo.warnings,
-				isCodeFile: diagnosticInfo.isCodeFile
-			};
-		});
+	private async sendGraphUpdate(): Promise<void> {
+		if (this.isSendingGraphUpdate) {
+			this.pendingGraphUpdate = true;
+			return;
+		}
 
-		const message: ExtensionMessage = {
-			type: 'graph/update',
-			nodes,
-			edges: model.getEdges(),
-			meta: {}
-		};
-		this.panel.webview.postMessage(message);
+		this.isSendingGraphUpdate = true;
+		try {
+			do {
+				this.pendingGraphUpdate = false;
+
+				const model = this.controller.getModel();
+				const diagnosticsCache = new Map<string, { errors: number; warnings: number; isCodeFile: boolean }>();
+				const diagnosticsByUri = new Map<string, readonly vscode.Diagnostic[]>();
+				const nodes = model.getNodes().map(node => {
+					const diagnosticInfo = this.collectDiagnosticInfo(node, diagnosticsCache, diagnosticsByUri);
+					return {
+						...node,
+						diagnosticsErrors: diagnosticInfo.errors,
+						diagnosticsWarnings: diagnosticInfo.warnings,
+						isCodeFile: diagnosticInfo.isCodeFile
+					};
+				});
+				const edges = model.getEdges();
+				const stats = await this.buildGraphStats(nodes, edges);
+
+				const message: ExtensionMessage = {
+					type: 'graph/update',
+					nodes,
+					edges,
+					meta: { stats }
+				};
+				await this.panel.webview.postMessage(message);
+			} while (this.pendingGraphUpdate);
+		} finally {
+			this.isSendingGraphUpdate = false;
+		}
 	}
 
 	private collectDiagnosticInfo(
@@ -282,6 +319,86 @@ export class GraphPanel {
 		return GraphPanel.codeFileExtensions.has(extension);
 	}
 
+	private async buildGraphStats(nodes: GraphNode[], edges: GraphEdge[]): Promise<GraphStats> {
+		const fileNodes = nodes.filter(node => node.kind === NodeKind.File);
+		const codeFileNodes = fileNodes.filter(node => {
+			if (!node.uri) {
+				return false;
+			}
+
+			const uri = this.parseUriSafe(node.uri);
+			return !!uri && this.isCodeFileUri(uri);
+		});
+
+		let linesOfCode = 0;
+		for (const node of codeFileNodes) {
+			if (!node.uri) {
+				continue;
+			}
+
+			const uri = this.parseUriSafe(node.uri);
+			if (!uri) {
+				continue;
+			}
+
+			linesOfCode += await this.countLinesOfCode(uri);
+		}
+
+		const dependencyCount = edges.filter(edge =>
+			edge.kind === EdgeKind.DependsLocal || edge.kind === EdgeKind.DependsExternal
+		).length;
+
+		const errorCount = fileNodes.reduce(
+			(sum, node) => sum + (Number.isFinite(node.diagnosticsErrors) ? Math.max(0, node.diagnosticsErrors ?? 0) : 0),
+			0
+		);
+
+		const warningCount = fileNodes.reduce(
+			(sum, node) => sum + (Number.isFinite(node.diagnosticsWarnings) ? Math.max(0, node.diagnosticsWarnings ?? 0) : 0),
+			0
+		);
+
+		return {
+			fileCount: fileNodes.length,
+			linesOfCode,
+			dependencyCount,
+			errorCount,
+			warningCount
+		};
+	}
+
+	private async countLinesOfCode(uri: vscode.Uri): Promise<number> {
+		const cacheKey = uri.toString();
+		const cached = this.lineCountCache.get(cacheKey);
+		if (typeof cached === 'number') {
+			return cached;
+		}
+
+		try {
+			const document = await vscode.workspace.openTextDocument(uri);
+			let count = 0;
+			for (let i = 0; i < document.lineCount; i++) {
+				if (document.lineAt(i).text.trim().length > 0) {
+					count += 1;
+				}
+			}
+
+			this.lineCountCache.set(cacheKey, count);
+			return count;
+		} catch {
+			this.lineCountCache.set(cacheKey, 0);
+			return 0;
+		}
+	}
+
+	private parseUriSafe(rawUri: string): vscode.Uri | undefined {
+		try {
+			return vscode.Uri.parse(rawUri);
+		} catch {
+			return undefined;
+		}
+	}
+
 	/**
 	 * Send state update to webview
 	 */
@@ -292,7 +409,8 @@ export class GraphPanel {
 			filters: model.getFilters(),
 			colors: model.getColorRules(),
 			root: model.getState().rootPath,
-			activeMode: model.getActiveMode()
+			activeMode: model.getActiveMode(),
+			dependencyMode: model.getDependencyMode()
 		};
 		this.panel.webview.postMessage(message);
 	}
@@ -347,6 +465,10 @@ export class GraphPanel {
 				<label class="inline-row">
 					<input type="checkbox" id="debug-mode">
 					<span>Active Debug Highlight</span>
+				</label>
+				<label class="inline-row">
+					<input type="checkbox" id="dependency-mode">
+					<span>Dependency Graph</span>
 				</label>
 				<label class="inline-row">Depth
 					<input type="number" id="animate-depth" min="1" max="12" value="2">
@@ -411,6 +533,19 @@ export class GraphPanel {
 	</section>
 
 	<div id="graph-container"></div>
+	<div id="stats-panel" data-collapsed="false">
+		<div class="stats-header">
+			<span>Workspace Stats</span>
+			<button id="stats-toggle" aria-label="Minimize stats">−</button>
+		</div>
+		<div class="stats-content">
+			<div class="stats-row"><span>Files</span><strong id="stats-files">0</strong></div>
+			<div class="stats-row"><span>LOC (code)</span><strong id="stats-loc">0</strong></div>
+			<div class="stats-row"><span>Dependencies</span><strong id="stats-deps">0</strong></div>
+			<div class="stats-row"><span>Errors</span><strong id="stats-errors">0</strong></div>
+			<div class="stats-row"><span>Warnings</span><strong id="stats-warnings">0</strong></div>
+		</div>
+	</div>
 	<div id="animation-status" aria-live="polite"></div>
 
 	<script src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>

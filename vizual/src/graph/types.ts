@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 export enum NodeKind {
 	Folder = 'folder',
 	File = 'file',
+	Dependency = 'dependency',
 	Class = 'class',
 	Function = 'function',
 	Method = 'method',
@@ -23,7 +24,9 @@ export enum NodeKind {
  * Edge types
  */
 export enum EdgeKind {
-	Contains = 'contains'
+	Contains = 'contains',
+	DependsLocal = 'dependsLocal',
+	DependsExternal = 'dependsExternal'
 }
 
 /**
@@ -88,14 +91,23 @@ export interface GraphState {
 	filters: FilterConfig;
 	colorRules: ColorRule[];
 	activeMode: boolean;
+	dependencyMode: boolean;
+}
+
+export interface GraphStats {
+	fileCount: number;
+	linesOfCode: number;
+	dependencyCount: number;
+	errorCount: number;
+	warningCount: number;
 }
 
 /**
  * Messages from extension to webview
  */
 export type ExtensionMessage =
-	| { type: 'graph/update'; nodes: GraphNode[]; edges: GraphEdge[]; meta: any }
-	| { type: 'state/update'; filters: FilterConfig; colors: ColorRule[]; root: string; activeMode: boolean }
+	| { type: 'graph/update'; nodes: GraphNode[]; edges: GraphEdge[]; meta?: { stats?: GraphStats } }
+	| { type: 'state/update'; filters: FilterConfig; colors: ColorRule[]; root: string; activeMode: boolean; dependencyMode: boolean }
 	| { type: 'node/snippet'; requestId: string; nodeId: string; lineNumber?: number; lineTexts?: string[] };
 
 /**
@@ -106,6 +118,7 @@ export type WebviewMessage =
 	| { type: 'node/collapse'; nodeId: string }
 	| { type: 'node/open'; nodeId: string; ctrlKey: boolean }
 	| { type: 'node/snippet'; requestId: string; nodeId: string }
+	| { type: 'dependencyMode/set'; value: boolean }
 	| { type: 'filters/set'; filters: FilterConfig }
 	| { type: 'colors/set'; colors: ColorRule[] }
 	| { type: 'root/pick' }

@@ -17,6 +17,7 @@ export const DEFAULT_FILTERS: FilterConfig = {
 export const DEFAULT_COLOR_RULES: ColorRule[] = [
 	{ kind: NodeKind.Folder, color: '#285fb8' },
 	{ kind: NodeKind.File, color: '#87CEEB' },
+	{ kind: NodeKind.Dependency, color: '#5f8fd3' },
 	{ kind: NodeKind.Class, color: '#98FB98' },
 	{ kind: NodeKind.Function, color: '#DDA0DD' },
 	{ kind: NodeKind.Method, color: '#F0E68C' },
@@ -39,7 +40,8 @@ export class GraphModel {
 			rootPath,
 			filters: { ...DEFAULT_FILTERS },
 			colorRules: [...DEFAULT_COLOR_RULES],
-			activeMode: false
+			activeMode: false,
+			dependencyMode: false
 		};
 	}
 
@@ -63,7 +65,19 @@ export class GraphModel {
 	 * Add or update a node
 	 */
 	addNode(node: GraphNode): void {
-		this.state.nodes.set(node.id, node);
+		const existing = this.state.nodes.get(node.id);
+		if (existing) {
+			this.state.nodes.set(node.id, {
+				...existing,
+				...node,
+				isExpanded: existing.isExpanded || node.isExpanded,
+				metadata: node.metadata
+					? { ...(existing.metadata || {}), ...node.metadata }
+					: existing.metadata
+			});
+		} else {
+			this.state.nodes.set(node.id, node);
+		}
 		this.notifyUpdate();
 	}
 
@@ -78,8 +92,49 @@ export class GraphModel {
 	 * Add an edge
 	 */
 	addEdge(from: string, to: string, kind: EdgeKind = EdgeKind.Contains): void {
-		const id = `${from}->${to}`;
+		const id = `${kind}:${from}->${to}`;
 		this.state.edges.set(id, { id, from, to, kind });
+		this.notifyUpdate();
+	}
+
+	/**
+	 * Remove edges by kind in one pass
+	 */
+	removeEdgesByKinds(kinds: EdgeKind[]): void {
+		if (!kinds.length) {
+			return;
+		}
+
+		const kindSet = new Set(kinds);
+		let removed = false;
+		for (const [edgeId, edge] of this.state.edges.entries()) {
+			if (kindSet.has(edge.kind)) {
+				this.state.edges.delete(edgeId);
+				removed = true;
+			}
+		}
+
+		if (removed) {
+			this.notifyUpdate();
+		}
+	}
+
+	/**
+	 * Remove all nodes that match a predicate
+	 */
+	removeNodesByPredicate(predicate: (node: GraphNode) => boolean): void {
+		const nodeIdsToRemove = Array.from(this.state.nodes.values())
+			.filter(predicate)
+			.map(node => node.id);
+
+		if (!nodeIdsToRemove.length) {
+			return;
+		}
+
+		for (const nodeId of nodeIdsToRemove) {
+			this.removeNodeRecursive(nodeId);
+		}
+
 		this.notifyUpdate();
 	}
 
@@ -143,6 +198,21 @@ export class GraphModel {
 	}
 
 	/**
+	 * Toggle dependency graph mode
+	 */
+	setDependencyMode(value: boolean): void {
+		this.state.dependencyMode = value;
+		this.notifyUpdate();
+	}
+
+	/**
+	 * Get dependency graph mode
+	 */
+	getDependencyMode(): boolean {
+		return this.state.dependencyMode;
+	}
+
+	/**
 	 * Mark a node as expanded
 	 */
 	setNodeExpanded(nodeId: string, expanded: boolean): void {
@@ -182,7 +252,7 @@ export class GraphModel {
 	private getChildrenIds(nodeId: string): string[] {
 		const children: string[] = [];
 		for (const edge of this.state.edges.values()) {
-			if (edge.from === nodeId) {
+			if (edge.kind === EdgeKind.Contains && edge.from === nodeId) {
 				children.push(edge.to);
 			}
 		}

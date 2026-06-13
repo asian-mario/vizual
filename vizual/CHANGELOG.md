@@ -2,6 +2,44 @@
 
 All notable changes to the "vizual" extension will be documented in this file.
 
+## [0.2.2] - 2026-06-12
+
+### New Features
+
+- Added a new **Dependency Graph Mode** for visualising file relationships alongside the existing containment graph.
+- Added dependency node and edge support:
+  - **Local dependencies** are shown as workspace-linked dependency edges.
+  - **External dependencies** are shown as separate dependency nodes.
+  - **Unresolved local dependencies** are represented as virtual dependency nodes.
+
+- Added dependency parsing and resolution support for multiple source file types, including TypeScript, JavaScript, Python, Rust, Java, Go, PHP, Ruby, Swift, Kotlin, Scala, Dart, and related web formats.
+- Added dedicated styling for dependency nodes and dependency edges.
+
+### Improvements
+
+- Overhauled the **node expansion animation** system for smoother root-to-depth graph expansion.
+- Improved animated node spawning so newly expanded child nodes appear from their parent node position instead of abruptly appearing in the graph.
+- Added hidden-state handling during expansion animation so child nodes only become visible when their parent is being animated.
+- Improved animation stability by preserving node positions, camera position, and zoom level during graph updates.
+- Added animation cancellation handling, allowing the graph to restore its previous expanded state when an animation is cancelled.
+- Improved animation sequencing with better expansion waiting, child-settling, and physics boosting during animated expansion.
+- Updated graph traversal logic so animation and root detection use containment edges only, avoiding dependency edges interfering with expansion depth.
+- Improved node updates so existing node metadata and expansion state are preserved instead of being overwritten.
+- Improved edge IDs to include edge kind, preventing containment and dependency edges between the same nodes from overwriting each other.
+- Improved filtering behaviour so directories continue to be traversed when include patterns are used, allowing deep file matches to appear correctly.
+- Improved filter matching with normalized paths and case-insensitive matching on Windows.
+
+### Fixes
+
+- Fixed cases where expanding a file could leave child symbols hidden or missing when the VS Code symbol provider was still warming up.
+- Fixed symbol expansion being incorrectly marked as complete when no symbols were returned immediately.
+- Fixed transient symbol provider failures making files permanently behave like leaf nodes.
+- Fixed node expansion failures caused by unsupported `SymbolInformation[]` responses from some language providers.
+- Fixed node-limit handling during symbol expansion so incomplete expansions are detected and reported instead of silently stopping.
+- Fixed recursive child expansion so hitting the node limit correctly cancels the remaining expansion path.
+- Fixed Markdown files causing excessive heading expansion by keeping `.md` and `.markdown` files collapsed.
+- Fixed dependency edges being treated as child edges during collapse and traversal operations.
+
 ## [0.2.1] - 2026-03-30
 
 ### New Features

@@ -8,15 +8,21 @@ export enum NodeKind {
 	File = 'file',
 	Dependency = 'dependency',
 	Class = 'class',
+	Struct = 'struct',
+	Impl = 'impl',
 	Function = 'function',
 	Method = 'method',
 	Variable = 'variable',
 	Interface = 'interface',
 	Enum = 'enum',
+	EnumMember = 'enumMember',
 	Namespace = 'namespace',
+	Object = 'object',
 	Property = 'property',
 	Constant = 'constant',
 	Constructor = 'constructor',
+	Operator = 'operator',
+	TypeParameter = 'typeParameter',
 	Unknown = 'unknown'
 }
 

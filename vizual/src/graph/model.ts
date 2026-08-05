@@ -19,11 +19,17 @@ export const DEFAULT_COLOR_RULES: ColorRule[] = [
 	{ kind: NodeKind.File, color: '#87CEEB' },
 	{ kind: NodeKind.Dependency, color: '#5f8fd3' },
 	{ kind: NodeKind.Class, color: '#98FB98' },
+	{ kind: NodeKind.Struct, color: '#7DD3FC' },
+	{ kind: NodeKind.Impl, color: '#FBBF24' },
 	{ kind: NodeKind.Function, color: '#DDA0DD' },
 	{ kind: NodeKind.Method, color: '#F0E68C' },
 	{ kind: NodeKind.Variable, color: '#FFA07A' },
 	{ kind: NodeKind.Interface, color: '#B0E0E6' },
-	{ kind: NodeKind.Enum, color: '#FFB6C1' }
+	{ kind: NodeKind.Enum, color: '#FFB6C1' },
+	{ kind: NodeKind.EnumMember, color: '#FDBA74' },
+	{ kind: NodeKind.Object, color: '#CBD5E1' },
+	{ kind: NodeKind.Operator, color: '#C4B5FD' },
+	{ kind: NodeKind.TypeParameter, color: '#A7F3D0' }
 ];
 
 /**

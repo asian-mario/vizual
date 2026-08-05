@@ -63,7 +63,7 @@ export class GraphController {
 	}
 
 	/**
-	 * Expand a node (folder or file)
+	 * Expand a node (folder, file, or symbol)
 	 */
 	async expandNode(nodeId: string): Promise<void> {
 		const node = this.model.getNode(nodeId);
@@ -75,11 +75,17 @@ export class GraphController {
 			await this.scanner.expandFolder(nodeId);
 		} else if (node.kind === NodeKind.File) {
 			await this.symbolProvider.expandFile(nodeId);
+		} else if (this.isSymbolNode(node)) {
+			await this.symbolProvider.expandSymbol(nodeId);
 		}
 
 		if (this.model.getDependencyMode()) {
 			await this.refreshDependencyGraph();
 		}
+	}
+
+	private isSymbolNode(node: GraphNode): boolean {
+		return Boolean(node.uri && node.range && node.kind !== NodeKind.Dependency);
 	}
 
 	/**

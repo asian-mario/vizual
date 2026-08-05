@@ -6,6 +6,9 @@
     linkLength: 180,
     lineThickness: 2,
   };
+  const popSpeedBaselineMultiplier = 2;
+  const rotationalDampingStrength = 0.45;
+  const rotationalDampingThreshold = 0.00001;
   const CODE_FILE_EXTENSIONS = new Set([
     ".ts",
     ".tsx",
@@ -390,6 +393,8 @@
     }
 
     // Transform nodes for vis-network
+    const childrenByParentId = getChildrenByParentId(containmentEdges);
+    const newNodeSpawnPositions = new Map();
     const visNodes = nodes.map((node) => {
       const color = getDisplayColorForNode(node);
       const nodeDepth = animationDepthMap
@@ -422,16 +427,32 @@
       if (previousPos) {
         visNode.x = previousPos.x;
         visNode.y = previousPos.y;
-      } else if (isAnimatingExpand && !previousNodeIds.has(node.id)) {
-        // New nodes spawned by animation start at their expanded parent position.
-        const parentEdge = containmentEdges.find(
-          (e) => e.to === node.id && pendingSpawnParents.has(e.from),
-        );
-        if (parentEdge) {
-          const parentPos = previousNodePositions[parentEdge.from];
-          if (parentPos) {
-            visNode.x = parentPos.x;
-            visNode.y = parentPos.y;
+      } else if (!previousNodeIds.has(node.id)) {
+        if (isAnimatingExpand) {
+          // New nodes spawned by animation start at their expanded parent position.
+          const parentEdge = containmentEdges.find(
+            (e) => e.to === node.id && pendingSpawnParents.has(e.from),
+          );
+          if (parentEdge) {
+            const parentPos = previousNodePositions[parentEdge.from];
+            if (parentPos) {
+              visNode.x = parentPos.x;
+              visNode.y = parentPos.y;
+            }
+          }
+        } else {
+          const spawnPos = getSpawnPositionNearParent(
+            node.id,
+            rootNode?.id,
+            containmentEdges,
+            childrenByParentId,
+            previousNodePositions,
+            newNodeSpawnPositions,
+          );
+          if (spawnPos) {
+            visNode.x = spawnPos.x;
+            visNode.y = spawnPos.y;
+            newNodeSpawnPositions.set(node.id, spawnPos);
           }
         }
       }
@@ -570,6 +591,13 @@
         isDragging = false;
         // Refresh hover state after drag
         updateNodeColors();
+        if (!currentState.physicsPaused && !isAnimatingExpand) {
+          network.startSimulation();
+        }
+      });
+
+      network.on("afterDrawing", () => {
+        dampenRotationalDrift();
       });
     } else {
       const nodeDataSet = network.body.data.nodes;
@@ -951,6 +979,10 @@
         return "ellipse";
       case "class":
         return "star";
+      case "struct":
+        return "diamond";
+      case "impl":
+        return "hexagon";
       case "function":
         return "triangle";
       case "method":
@@ -961,14 +993,22 @@
         return "diamond";
       case "enum":
         return "square";
+      case "enumMember":
+        return "dot";
       case "namespace":
         return "hexagon";
+      case "object":
+        return "ellipse";
       case "property":
         return "dot";
       case "constant":
         return "dot";
       case "constructor":
         return "triangleDown";
+      case "operator":
+        return "triangle";
+      case "typeParameter":
+        return "box";
       default:
         return "dot";
     }
@@ -990,17 +1030,19 @@
           iterations: 50,
           updateInterval: 10,
         },
-        adaptiveTimestep: true,
+        adaptiveTimestep: false,
+        maxVelocity: 30,
         minVelocity: 0.05,
+        timestep: 0.35,
         forceAtlas2Based: {
           centralGravity:
-            0.1 *
+            0.2 *
             (currentState.physics?.centerForce ?? defaultPhysics.centerForce),
           springConstant:
             currentState.physics?.linkForce ?? defaultPhysics.linkForce,
           springLength:
             currentState.physics?.linkLength ?? defaultPhysics.linkLength,
-          damping: 0.65,
+          damping: 0.38,
           avoidOverlap: 0.5,
         },
       },
@@ -1036,6 +1078,9 @@
   function applyPhysics() {
     if (!network) return;
     network.setOptions({ physics: buildOptions().physics });
+    if (!currentState.physicsPaused) {
+      network.startSimulation();
+    }
   }
 
   function togglePhysicsPause() {
@@ -1049,6 +1094,73 @@
       network.stopSimulation();
     } else {
       network.startSimulation();
+    }
+  }
+
+  function dampenRotationalDrift() {
+    if (
+      !network?.body?.nodes ||
+      currentState.physicsPaused ||
+      isAnimatingExpand ||
+      isDragging
+    ) {
+      return;
+    }
+
+    const dynamicNodes = Object.values(network.body.nodes).filter((node) => {
+      const fixed = node.options?.fixed;
+      return (
+        typeof node.x === "number" &&
+        typeof node.y === "number" &&
+        typeof node.vx === "number" &&
+        typeof node.vy === "number" &&
+        !(fixed && fixed.x && fixed.y)
+      );
+    });
+
+    if (dynamicNodes.length < 2) {
+      return;
+    }
+
+    let centerX = 0;
+    let centerY = 0;
+    for (const node of dynamicNodes) {
+      centerX += node.x;
+      centerY += node.y;
+    }
+    centerX /= dynamicNodes.length;
+    centerY /= dynamicNodes.length;
+
+    let angularVelocityNumerator = 0;
+    let angularVelocityDenominator = 0;
+    for (const node of dynamicNodes) {
+      const dx = node.x - centerX;
+      const dy = node.y - centerY;
+      const radiusSquared = dx * dx + dy * dy;
+      if (radiusSquared < 1) {
+        continue;
+      }
+
+      angularVelocityNumerator += dx * node.vy - dy * node.vx;
+      angularVelocityDenominator += radiusSquared;
+    }
+
+    if (angularVelocityDenominator <= 0) {
+      return;
+    }
+
+    const angularVelocity =
+      angularVelocityNumerator / angularVelocityDenominator;
+    if (Math.abs(angularVelocity) < rotationalDampingThreshold) {
+      return;
+    }
+
+    const correction = angularVelocity * rotationalDampingStrength;
+    for (const node of dynamicNodes) {
+      const dx = node.x - centerX;
+      const dy = node.y - centerY;
+      node.vx += correction * dy;
+      node.vy -= correction * dx;
     }
   }
 
@@ -1066,11 +1178,87 @@
     return Math.max(0.5, Math.min(2, raw));
   }
 
+  function getAnimateTimeScale() {
+    return 1 / (getAnimateSpeedValue() * popSpeedBaselineMultiplier);
+  }
+
   function getRootNodeId() {
     if (!currentNodes.length) return null;
     const hasIncoming = new Set(getContainmentEdges().map((edge) => edge.to));
     const root = currentNodes.find((n) => !hasIncoming.has(n.id));
     return root ? root.id : currentNodes[0].id;
+  }
+
+  function getChildrenByParentId(edges) {
+    const childrenByParentId = new Map();
+    for (const edge of edges) {
+      const children = childrenByParentId.get(edge.from) || [];
+      children.push(edge.to);
+      childrenByParentId.set(edge.from, children);
+    }
+    return childrenByParentId;
+  }
+
+  function getSpawnPositionNearParent(
+    nodeId,
+    rootNodeId,
+    containmentEdges,
+    childrenByParentId,
+    previousNodePositions,
+    newNodeSpawnPositions,
+  ) {
+    const parentEdge = containmentEdges.find((edge) => edge.to === nodeId);
+    if (!parentEdge) {
+      return null;
+    }
+
+    const parentPos =
+      previousNodePositions[parentEdge.from] ||
+      newNodeSpawnPositions.get(parentEdge.from);
+    if (!parentPos) {
+      return null;
+    }
+
+    const siblings = childrenByParentId.get(parentEdge.from) || [nodeId];
+    const index = Math.max(0, siblings.indexOf(nodeId));
+    const total = Math.max(1, siblings.length);
+    const linkLength = currentState.physics?.linkLength ?? defaultPhysics.linkLength;
+    const radius = Math.max(40, Math.min(110, linkLength * 0.35));
+    let angle;
+
+    if (parentEdge.from === rootNodeId) {
+      const seed = getStableAngleOffset(parentEdge.from);
+      angle = seed + (total === 1 ? 0 : (index / total) * Math.PI * 2);
+    } else {
+      const rootPos =
+        rootNodeId && previousNodePositions[rootNodeId]
+          ? previousNodePositions[rootNodeId]
+          : newNodeSpawnPositions.get(rootNodeId) || { x: 0, y: 0 };
+      const dx = parentPos.x - rootPos.x;
+      const dy = parentPos.y - rootPos.y;
+      const outwardAngle =
+        Math.abs(dx) + Math.abs(dy) > 0.001
+          ? Math.atan2(dy, dx)
+          : getStableAngleOffset(parentEdge.from);
+      const spread = Math.min(Math.PI * 0.9, Math.max(Math.PI / 3, total * 0.16));
+      const siblingOffset =
+        total === 1 ? 0 : (index / Math.max(1, total - 1) - 0.5) * spread;
+      angle = outwardAngle + siblingOffset;
+    }
+
+    return {
+      x: parentPos.x + Math.cos(angle) * radius,
+      y: parentPos.y + Math.sin(angle) * radius,
+    };
+  }
+
+  function getStableAngleOffset(id) {
+    let hash = 0;
+    const text = String(id);
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return (hash / 0xffffffff) * Math.PI * 2;
   }
 
   function wait(ms) {
@@ -1282,8 +1470,7 @@
   async function animateSiblingChildren(parentId, level, depth) {
     if (!network) return;
 
-    const speed = getAnimateSpeedValue();
-    const timeScale = 1 / speed;
+    const timeScale = getAnimateTimeScale();
 
     const childIds = getContainmentEdges()
       .filter((e) => e.from === parentId)
@@ -1361,6 +1548,8 @@
       network.setOptions({ physics: buildOptions().physics });
       if (currentState.physicsPaused) {
         network.stopSimulation();
+      } else {
+        network.startSimulation();
       }
       return;
     }

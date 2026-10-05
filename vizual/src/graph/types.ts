@@ -102,10 +102,16 @@ export interface GraphState {
 
 export interface GraphStats {
 	fileCount: number;
+	codeFileCount: number;
 	linesOfCode: number;
 	dependencyCount: number;
+	localDependencyCount: number;
+	externalDependencyCount: number;
 	errorCount: number;
 	warningCount: number;
+	errorFileCount: number;
+	warningFileCount: number;
+	cleanFileCount: number;
 }
 
 /**

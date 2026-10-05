@@ -85,6 +85,8 @@
     debugMode: false,
     errorWarningHighlighting: false,
     statsCollapsed: false,
+    statsExpanded: false,
+    statsCorner: "bottom-left",
     physicsPaused: false,
     animateDepth: 2,
     animateSpeed: 1,
@@ -101,6 +103,16 @@
 
   if (typeof currentState.statsCollapsed !== "boolean") {
     currentState.statsCollapsed = false;
+  }
+  if (typeof currentState.statsExpanded !== "boolean") {
+    currentState.statsExpanded = false;
+  }
+  if (
+    !["top-left", "top-right", "bottom-left", "bottom-right"].includes(
+      currentState.statsCorner,
+    )
+  ) {
+    currentState.statsCorner = "bottom-left";
   }
 
   // Initialize UI
@@ -303,8 +315,15 @@
       setStatsCollapsed(currentState.statsCollapsed);
       persistState();
     });
+    document.getElementById("stats-detail-toggle")?.addEventListener("click", () => {
+      currentState.statsExpanded = !currentState.statsExpanded;
+      setStatsExpanded(currentState.statsExpanded);
+      persistState();
+    });
 
     setStatsCollapsed(currentState.statsCollapsed);
+    setStatsExpanded(currentState.statsExpanded);
+    initializeStatsPosition();
   }
 
   /**
@@ -821,6 +840,96 @@
       "aria-label",
       collapsed ? "Expand stats" : "Minimize stats",
     );
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  }
+
+  function setStatsExpanded(expanded) {
+    const panel = document.getElementById("stats-panel");
+    const toggle = document.getElementById("stats-detail-toggle");
+    if (!panel || !toggle) {
+      return;
+    }
+
+    panel.setAttribute("data-expanded", String(expanded));
+    toggle.textContent = expanded ? "Less" : "Details";
+    toggle.setAttribute(
+      "aria-label",
+      expanded ? "Show compact stats" : "Show detailed stats",
+    );
+    toggle.setAttribute("aria-expanded", String(expanded));
+  }
+
+  function initializeStatsPosition() {
+    const panel = document.getElementById("stats-panel");
+    const header = panel?.querySelector(".stats-header");
+    if (!panel || !header) {
+      return;
+    }
+
+    panel.dataset.corner = currentState.statsCorner;
+    let drag = null;
+
+    header.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("button")) {
+        return;
+      }
+
+      const rect = panel.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+        moved: false,
+      };
+      header.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    header.addEventListener("pointermove", (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+
+      const left = Math.max(
+        14,
+        Math.min(event.clientX - drag.offsetX, window.innerWidth - panel.offsetWidth - 14),
+      );
+      const top = Math.max(
+        86,
+        Math.min(event.clientY - drag.offsetY, window.innerHeight - panel.offsetHeight - 48),
+      );
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      drag.moved = true;
+    });
+
+    const finishDrag = (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+
+      if (drag.moved && event.type === "pointerup") {
+        const rect = panel.getBoundingClientRect();
+        const vertical = rect.top + rect.height / 2 < window.innerHeight / 2
+          ? "top" : "bottom";
+        const horizontal = rect.left + rect.width / 2 < window.innerWidth / 2
+          ? "left" : "right";
+        currentState.statsCorner = `${vertical}-${horizontal}`;
+        panel.dataset.corner = currentState.statsCorner;
+        persistState();
+      }
+
+      panel.style.removeProperty("left");
+      panel.style.removeProperty("top");
+      panel.style.removeProperty("right");
+      panel.style.removeProperty("bottom");
+      drag = null;
+    };
+
+    header.addEventListener("pointerup", finishDrag);
+    header.addEventListener("pointercancel", finishDrag);
   }
 
   function updateStatsPanel(stats) {
@@ -855,6 +964,26 @@
       "stats-warnings",
       Number.isFinite(stats.warningCount) ? stats.warningCount : 0,
     );
+    setText("stats-local-deps", stats.localDependencyCount ?? 0);
+    setText("stats-external-deps", stats.externalDependencyCount ?? 0);
+    setText("stats-error-files", stats.errorFileCount ?? 0);
+    setText("stats-warning-files", stats.warningFileCount ?? 0);
+    setText("stats-clean-files", stats.cleanFileCount ?? 0);
+
+    const codeFiles = Math.max(0, stats.codeFileCount ?? 0);
+    const severity = document.querySelector(".stats-severity");
+    if (severity) {
+      const errorFiles = Math.max(0, stats.errorFileCount ?? 0);
+      const warningFiles = Math.max(0, stats.warningFileCount ?? 0);
+      const cleanFiles = Math.max(0, stats.cleanFileCount ?? 0);
+      const severityLabel = `${errorFiles} code files with errors, ${warningFiles} with warnings only, ${cleanFiles} clean`;
+      severity.setAttribute("aria-label", severityLabel);
+      severity.title = severityLabel;
+      severity.querySelector(".stats-severity-error").style.flexGrow = String(codeFiles ? errorFiles / codeFiles : 0);
+      severity.querySelector(".stats-severity-warning").style.flexGrow = String(codeFiles ? warningFiles / codeFiles : 0);
+      severity.querySelector(".stats-severity-clean").style.flexGrow = String(codeFiles ? cleanFiles / codeFiles : 0);
+      severity.dataset.empty = String(codeFiles === 0);
+    }
   }
 
   function getDisplayColorForNode(node) {

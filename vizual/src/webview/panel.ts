@@ -344,9 +344,9 @@ export class GraphPanel {
 			linesOfCode += await this.countLinesOfCode(uri);
 		}
 
-		const dependencyCount = edges.filter(edge =>
-			edge.kind === EdgeKind.DependsLocal || edge.kind === EdgeKind.DependsExternal
-		).length;
+		const localDependencyCount = edges.filter(edge => edge.kind === EdgeKind.DependsLocal).length;
+		const externalDependencyCount = edges.filter(edge => edge.kind === EdgeKind.DependsExternal).length;
+		const dependencyCount = localDependencyCount + externalDependencyCount;
 
 		const errorCount = fileNodes.reduce(
 			(sum, node) => sum + (Number.isFinite(node.diagnosticsErrors) ? Math.max(0, node.diagnosticsErrors ?? 0) : 0),
@@ -357,13 +357,24 @@ export class GraphPanel {
 			(sum, node) => sum + (Number.isFinite(node.diagnosticsWarnings) ? Math.max(0, node.diagnosticsWarnings ?? 0) : 0),
 			0
 		);
+		const errorFileCount = codeFileNodes.filter(node => (node.diagnosticsErrors ?? 0) > 0).length;
+		const warningFileCount = codeFileNodes.filter(node =>
+			(node.diagnosticsErrors ?? 0) === 0 && (node.diagnosticsWarnings ?? 0) > 0
+		).length;
+		const cleanFileCount = codeFileNodes.length - errorFileCount - warningFileCount;
 
 		return {
 			fileCount: fileNodes.length,
+			codeFileCount: codeFileNodes.length,
 			linesOfCode,
 			dependencyCount,
+			localDependencyCount,
+			externalDependencyCount,
 			errorCount,
-			warningCount
+			warningCount,
+			errorFileCount,
+			warningFileCount,
+			cleanFileCount
 		};
 	}
 
@@ -535,7 +546,8 @@ export class GraphPanel {
 	<div id="graph-container"></div>
 	<div id="stats-panel" data-collapsed="false">
 		<div class="stats-header">
-			<span>Workspace Stats</span>
+			<span title="Drag to move stats between corners">Workspace Stats</span>
+			<button id="stats-detail-toggle" aria-label="Show detailed stats" aria-expanded="false">Details</button>
 			<button id="stats-toggle" aria-label="Minimize stats">−</button>
 		</div>
 		<div class="stats-content">
@@ -544,6 +556,20 @@ export class GraphPanel {
 			<div class="stats-row"><span>Dependencies</span><strong id="stats-deps">0</strong></div>
 			<div class="stats-row"><span>Errors</span><strong id="stats-errors">0</strong></div>
 			<div class="stats-row"><span>Warnings</span><strong id="stats-warnings">0</strong></div>
+			<div class="stats-severity" role="img" aria-label="No code files">
+				<span class="stats-severity-error" id="stats-severity-errors"></span>
+				<span class="stats-severity-warning" id="stats-severity-warnings"></span>
+				<span class="stats-severity-clean" id="stats-severity-clean"></span>
+			</div>
+			<div class="stats-details">
+				<div class="stats-group-title">Dependencies</div>
+				<div class="stats-row"><span>Local</span><strong id="stats-local-deps">0</strong></div>
+				<div class="stats-row"><span>External</span><strong id="stats-external-deps">0</strong></div>
+				<div class="stats-group-title">Code files</div>
+				<div class="stats-row"><span>With errors</span><strong id="stats-error-files">0</strong></div>
+				<div class="stats-row"><span>Warnings only</span><strong id="stats-warning-files">0</strong></div>
+				<div class="stats-row"><span>Clean</span><strong id="stats-clean-files">0</strong></div>
+			</div>
 		</div>
 	</div>
 	<div id="animation-status" aria-live="polite"></div>
